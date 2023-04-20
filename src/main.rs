@@ -1,3 +1,10 @@
+use self::bytecode::to_mnemonics;
+
+mod analysis;
+mod bytecode;
+mod opcodes;
+mod utils;
+
 struct Function {
     name: String,
     calling: Option<Vec<Function>>,
@@ -9,5 +16,8 @@ struct Function {
 // 4. profit
 
 fn main() {
-    println!("Hello, world!");
+    let code = [0x60, 0x10];
+    let mnemonics = to_mnemonics(&code);
+
+    dbg!(&mnemonics);
 }
