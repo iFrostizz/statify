@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::{fmt::Debug, ops::Range};
 
 pub type Word = [u8; 32];
@@ -7,11 +6,12 @@ pub struct Stack {
     data: Vec<Word>,
 }
 
+#[derive(Default)]
 pub struct Memory {
-    data: VecDeque<Word>,
+    data: Vec<u8>,
 }
 
-// TODO implement meaningful errors (stack underflow, overflow)
+// TODO implement meaningful errors (e.g stack underflow, overflow)
 impl Stack {
     pub fn new() -> Self {
         Self {
@@ -44,10 +44,9 @@ impl Stack {
 
     /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
     pub fn swapn(&mut self, n: usize) -> bool {
-        let word = match self.data.get(n) {
-            Some(w) => w,
-            None => return false,
-        };
+        if self.data.get(n).is_none() {
+            return false;
+        }
 
         self.data.swap(0, n);
         true
@@ -55,23 +54,25 @@ impl Stack {
 }
 
 impl Memory {
-    /// set a vec of words in the memory at offset
-    pub fn set(&mut self, w: VecDeque<Word>, offset: usize) {
-        // let mut rem = &w[..];
-        let mut rem = w;
+    pub fn new() -> Self {
+        Default::default()
+    }
 
-        // write rem byte by byte in the memory
-        while !rem.is_empty() {
-            // word is aligned
-            if offset % 32 == 0 {
-                let word = rem.pop_front();
-            }
+    /// set a vec of words in the memory at offset
+    pub fn set(&mut self, offset: usize, words: Vec<u8>) {
+        let len = self.data.len();
+        if len <= offset {
+            self.data.resize(len + words.len(), 0);
         }
+
+        self.data.splice(offset..(offset + words.len()), words);
     }
 
     /// get a vec of words in the memory at offset
-    pub fn get(&self, r: Range<usize>) -> Vec<Word> {
-        todo!()
+    pub fn get(&self, r: Range<usize>) -> Vec<u8> {
+        r.into_iter()
+            .map(|o| *self.data.get(o).unwrap_or(&0))
+            .collect()
     }
 }
 
@@ -94,7 +95,7 @@ impl Debug for Memory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut data = self
             .data
-            .iter()
+            .chunks(32)
             .fold(String::from("["), |d, w| format!("{d}, {}", hex::encode(w)));
 
         data.push(']');
@@ -150,4 +151,12 @@ fn swap_stack() {
     stack.swapn(1);
 
     assert_eq!(stack.data, vec![num2, num1]);
+}
+
+#[test]
+fn set_mem() {
+    let mut memo = Memory::new();
+    let words = vec![1, 2, 3, 4, 5];
+    memo.set(0, words.clone());
+    assert_eq!(memo.get(0..5), words);
 }
