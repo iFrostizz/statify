@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Read;
 
 pub fn get_slice<T>(v: &[T], range: std::ops::Range<usize>) -> &[T] {

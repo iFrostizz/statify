@@ -1,165 +1,161 @@
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct OpCode(u8);
 
-pub const STOP: u8 = 0x00;
-pub const ADD: u8 = 0x01;
-pub const MUL: u8 = 0x02;
-pub const SUB: u8 = 0x03;
-pub const DIV: u8 = 0x04;
-pub const SDIV: u8 = 0x05;
-pub const MOD: u8 = 0x06;
-pub const SMOD: u8 = 0x07;
-pub const ADDMOD: u8 = 0x08;
-pub const MULMOD: u8 = 0x09;
-pub const EXP: u8 = 0x0a;
-pub const SIGNEXTEND: u8 = 0x0b;
-
-pub const LT: u8 = 0x10;
-pub const GT: u8 = 0x11;
-pub const SLT: u8 = 0x12;
-pub const SGT: u8 = 0x13;
-pub const EQ: u8 = 0x14;
-pub const ISZERO: u8 = 0x15;
-pub const AND: u8 = 0x16;
-pub const OR: u8 = 0x17;
-pub const XOR: u8 = 0x18;
-pub const NOT: u8 = 0x19;
-pub const BYTE: u8 = 0x1a;
-
-pub const CALLDATALOAD: u8 = 0x35;
-pub const CALLDATASIZE: u8 = 0x36;
-pub const CALLDATACOPY: u8 = 0x37;
-pub const CODESIZE: u8 = 0x38;
-pub const CODECOPY: u8 = 0x39;
-
-pub const SHL: u8 = 0x1b;
-pub const SHR: u8 = 0x1c;
-pub const SAR: u8 = 0x1d;
-pub const SHA3: u8 = 0x20;
-pub const POP: u8 = 0x50;
-pub const MLOAD: u8 = 0x51;
-pub const MSTORE: u8 = 0x52;
-pub const MSTORE8: u8 = 0x53;
-pub const JUMP: u8 = 0x56;
-pub const JUMPI: u8 = 0x57;
-pub const PC: u8 = 0x58;
-pub const MSIZE: u8 = 0x59;
-pub const JUMPDEST: u8 = 0x5b;
-pub const PUSH0: u8 = 0x5f;
-pub const PUSH1: u8 = 0x60;
-pub const PUSH2: u8 = 0x61;
-pub const PUSH3: u8 = 0x62;
-pub const PUSH4: u8 = 0x63;
-pub const PUSH5: u8 = 0x64;
-pub const PUSH6: u8 = 0x65;
-pub const PUSH7: u8 = 0x66;
-pub const PUSH8: u8 = 0x67;
-pub const PUSH9: u8 = 0x68;
-pub const PUSH10: u8 = 0x69;
-pub const PUSH11: u8 = 0x6a;
-pub const PUSH12: u8 = 0x6b;
-pub const PUSH13: u8 = 0x6c;
-pub const PUSH14: u8 = 0x6d;
-pub const PUSH15: u8 = 0x6e;
-pub const PUSH16: u8 = 0x6f;
-pub const PUSH17: u8 = 0x70;
-pub const PUSH18: u8 = 0x71;
-pub const PUSH19: u8 = 0x72;
-pub const PUSH20: u8 = 0x73;
-pub const PUSH21: u8 = 0x74;
-pub const PUSH22: u8 = 0x75;
-pub const PUSH23: u8 = 0x76;
-pub const PUSH24: u8 = 0x77;
-pub const PUSH25: u8 = 0x78;
-pub const PUSH26: u8 = 0x79;
-pub const PUSH27: u8 = 0x7a;
-pub const PUSH28: u8 = 0x7b;
-pub const PUSH29: u8 = 0x7c;
-pub const PUSH30: u8 = 0x7d;
-pub const PUSH31: u8 = 0x7e;
-pub const PUSH32: u8 = 0x7f;
-pub const DUP1: u8 = 0x80;
-pub const DUP2: u8 = 0x81;
-pub const DUP3: u8 = 0x82;
-pub const DUP4: u8 = 0x83;
-pub const DUP5: u8 = 0x84;
-pub const DUP6: u8 = 0x85;
-pub const DUP7: u8 = 0x86;
-pub const DUP8: u8 = 0x87;
-pub const DUP9: u8 = 0x88;
-pub const DUP10: u8 = 0x89;
-pub const DUP11: u8 = 0x8a;
-pub const DUP12: u8 = 0x8b;
-pub const DUP13: u8 = 0x8c;
-pub const DUP14: u8 = 0x8d;
-pub const DUP15: u8 = 0x8e;
-pub const DUP16: u8 = 0x8f;
-pub const SWAP1: u8 = 0x90;
-pub const SWAP2: u8 = 0x91;
-pub const SWAP3: u8 = 0x92;
-pub const SWAP4: u8 = 0x93;
-pub const SWAP5: u8 = 0x94;
-pub const SWAP6: u8 = 0x95;
-pub const SWAP7: u8 = 0x96;
-pub const SWAP8: u8 = 0x97;
-pub const SWAP9: u8 = 0x98;
-pub const SWAP10: u8 = 0x99;
-pub const SWAP11: u8 = 0x9a;
-pub const SWAP12: u8 = 0x9b;
-pub const SWAP13: u8 = 0x9c;
-pub const SWAP14: u8 = 0x9d;
-pub const SWAP15: u8 = 0x9e;
-pub const SWAP16: u8 = 0x9f;
-pub const RETURN: u8 = 0xf3;
-pub const REVERT: u8 = 0xfd;
-pub const INVALID: u8 = 0xfe;
-pub const ADDRESS: u8 = 0x30;
-pub const BALANCE: u8 = 0x31;
-pub const BASEFEE: u8 = 0x48;
-pub const ORIGIN: u8 = 0x32;
-pub const CALLER: u8 = 0x33;
-pub const CALLVALUE: u8 = 0x34;
-pub const GASPRICE: u8 = 0x3a;
-pub const EXTCODESIZE: u8 = 0x3b;
-pub const EXTCODECOPY: u8 = 0x3c;
-pub const EXTCODEHASH: u8 = 0x3f;
-pub const RETURNDATASIZE: u8 = 0x3d;
-pub const RETURNDATACOPY: u8 = 0x3e;
-pub const BLOCKHASH: u8 = 0x40;
-pub const COINBASE: u8 = 0x41;
-pub const TIMESTAMP: u8 = 0x42;
-pub const NUMBER: u8 = 0x43;
-pub const DIFFICULTY: u8 = 0x44;
-pub const GASLIMIT: u8 = 0x45;
-pub const SELFBALANCE: u8 = 0x47;
-pub const SLOAD: u8 = 0x54;
-pub const SSTORE: u8 = 0x55;
-pub const GAS: u8 = 0x5a;
-pub const LOG0: u8 = 0xa0;
-pub const LOG1: u8 = 0xa1;
-pub const LOG2: u8 = 0xa2;
-pub const LOG3: u8 = 0xa3;
-pub const LOG4: u8 = 0xa4;
-pub const CREATE: u8 = 0xf0;
-pub const CREATE2: u8 = 0xf5;
-pub const CALL: u8 = 0xf1;
-pub const CALLCODE: u8 = 0xf2;
-pub const DELEGATECALL: u8 = 0xf4;
-pub const STATICCALL: u8 = 0xfa;
-pub const SELFDESTRUCT: u8 = 0xff;
-pub const CHAINID: u8 = 0x46;
+#[derive(Debug, PartialEq, Eq)]
+pub enum OpCodes {
+    Invalid,
+    Stop,
+    Add,
+    Mul,
+    Sub,
+    Div,
+    Sdiv,
+    Mod,
+    Smod,
+    Addmod,
+    Mulmod,
+    Exp,
+    Signextend,
+    Lt,
+    Gt,
+    Slt,
+    Sgt,
+    Eq,
+    Iszero,
+    And,
+    Or,
+    Xor,
+    Not,
+    Byte,
+    Shl,
+    Shr,
+    Sar,
+    Sha3,
+    Address,
+    Balance,
+    Origin,
+    Caller,
+    Callvalue,
+    Calldataload,
+    Calldatasize,
+    Calldatacopy,
+    Codesize,
+    Codecopy,
+    Gasprice,
+    Extcodesize,
+    Extcodecopy,
+    Returndatasize,
+    Returndatacopy,
+    Extcodehash,
+    Blockhash,
+    Coinbase,
+    Timestamp,
+    Number,
+    Difficulty,
+    Gaslimit,
+    Chainid,
+    Selfbalance,
+    Basefee,
+    Pop,
+    Mload,
+    Mstore,
+    Mstore8,
+    Sload,
+    Sstore,
+    Jump,
+    Jumpi,
+    Pc,
+    Msize,
+    Gas,
+    Jumpdest,
+    Push0,
+    Push1,
+    Push2,
+    Push3,
+    Push4,
+    Push5,
+    Push6,
+    Push7,
+    Push8,
+    Push9,
+    Push10,
+    Push11,
+    Push12,
+    Push13,
+    Push14,
+    Push15,
+    Push16,
+    Push17,
+    Push18,
+    Push19,
+    Push20,
+    Push21,
+    Push22,
+    Push23,
+    Push24,
+    Push25,
+    Push26,
+    Push27,
+    Push28,
+    Push29,
+    Push30,
+    Push31,
+    Push32,
+    Dup1,
+    Dup2,
+    Dup3,
+    Dup4,
+    Dup5,
+    Dup6,
+    Dup7,
+    Dup8,
+    Dup9,
+    Dup10,
+    Dup11,
+    Dup12,
+    Dup13,
+    Dup14,
+    Dup15,
+    Dup16,
+    Swap1,
+    Swap2,
+    Swap3,
+    Swap4,
+    Swap5,
+    Swap6,
+    Swap7,
+    Swap8,
+    Swap9,
+    Swap10,
+    Swap11,
+    Swap12,
+    Swap13,
+    Swap14,
+    Swap15,
+    Swap16,
+    Log0,
+    Log1,
+    Log2,
+    Log3,
+    Log4,
+    Create,
+    Call,
+    Callcode,
+    Return,
+    Delegatecall,
+    Create2,
+    Staticcall,
+    Revert,
+    Selfdestruct,
+}
 
 impl OpCode {
-    pub fn try_from_u8(opcode: u8) -> Option<OpCode> {
-        OPCODE_JUMPMAP[opcode as usize].map(|_| OpCode(opcode))
+    pub fn from_u8(opcode: u8) -> OpCode {
+        OpCode(opcode)
     }
 
-    pub const fn as_str(&self) -> &'static str {
-        if let Some(str) = OPCODE_JUMPMAP[self.0 as usize] {
-            str
-        } else {
-            "unknown"
-        }
+    pub fn opcode(&self) -> &OpCodes {
+        OPCODE_JUMPMAP.get(self.0 as usize).unwrap()
     }
 
     #[inline(always)]
@@ -180,271 +176,261 @@ impl OpCode {
     }
 }
 
-impl core::fmt::Display for OpCode {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(val) = OPCODE_JUMPMAP[self.0 as usize] {
-            f.write_str(val)
-        } else {
-            write!(f, "UNKNOWN(0x{:02x})", self.0)
-        }
-    }
-}
-
-pub const OPCODE_JUMPMAP: [Option<&'static str>; 256] = [
-    /* 0x00 */ Some("STOP"),
-    /* 0x01 */ Some("ADD"),
-    /* 0x02 */ Some("MUL"),
-    /* 0x03 */ Some("SUB"),
-    /* 0x04 */ Some("DIV"),
-    /* 0x05 */ Some("SDIV"),
-    /* 0x06 */ Some("MOD"),
-    /* 0x07 */ Some("SMOD"),
-    /* 0x08 */ Some("ADDMOD"),
-    /* 0x09 */ Some("MULMOD"),
-    /* 0x0a */ Some("EXP"),
-    /* 0x0b */ Some("SIGNEXTEND"),
-    /* 0x0c */ None,
-    /* 0x0d */ None,
-    /* 0x0e */ None,
-    /* 0x0f */ None,
-    /* 0x10 */ Some("LT"),
-    /* 0x11 */ Some("GT"),
-    /* 0x12 */ Some("SLT"),
-    /* 0x13 */ Some("SGT"),
-    /* 0x14 */ Some("EQ"),
-    /* 0x15 */ Some("ISZERO"),
-    /* 0x16 */ Some("AND"),
-    /* 0x17 */ Some("OR"),
-    /* 0x18 */ Some("XOR"),
-    /* 0x19 */ Some("NOT"),
-    /* 0x1a */ Some("BYTE"),
-    /* 0x1b */ Some("SHL"),
-    /* 0x1c */ Some("SHR"),
-    /* 0x1d */ Some("SAR"),
-    /* 0x1e */ None,
-    /* 0x1f */ None,
-    /* 0x20 */ Some("SHA3"),
-    /* 0x21 */ None,
-    /* 0x22 */ None,
-    /* 0x23 */ None,
-    /* 0x24 */ None,
-    /* 0x25 */ None,
-    /* 0x26 */ None,
-    /* 0x27 */ None,
-    /* 0x28 */ None,
-    /* 0x29 */ None,
-    /* 0x2a */ None,
-    /* 0x2b */ None,
-    /* 0x2c */ None,
-    /* 0x2d */ None,
-    /* 0x2e */ None,
-    /* 0x2f */ None,
-    /* 0x30 */ Some("ADDRESS"),
-    /* 0x31 */ Some("BALANCE"),
-    /* 0x32 */ Some("ORIGIN"),
-    /* 0x33 */ Some("CALLER"),
-    /* 0x34 */ Some("CALLVALUE"),
-    /* 0x35 */ Some("CALLDATALOAD"),
-    /* 0x36 */ Some("CALLDATASIZE"),
-    /* 0x37 */ Some("CALLDATACOPY"),
-    /* 0x38 */ Some("CODESIZE"),
-    /* 0x39 */ Some("CODECOPY"),
-    /* 0x3a */ Some("GASPRICE"),
-    /* 0x3b */ Some("EXTCODESIZE"),
-    /* 0x3c */ Some("EXTCODECOPY"),
-    /* 0x3d */ Some("RETURNDATASIZE"),
-    /* 0x3e */ Some("RETURNDATACOPY"),
-    /* 0x3f */ Some("EXTCODEHASH"),
-    /* 0x40 */ Some("BLOCKHASH"),
-    /* 0x41 */ Some("COINBASE"),
-    /* 0x42 */ Some("TIMESTAMP"),
-    /* 0x43 */ Some("NUMBER"),
-    /* 0x44 */ Some("DIFFICULTY"),
-    /* 0x45 */ Some("GASLIMIT"),
-    /* 0x46 */ Some("CHAINID"),
-    /* 0x47 */ Some("SELFBALANCE"),
-    /* 0x48 */ Some("BASEFEE"),
-    /* 0x49 */ None,
-    /* 0x4a */ None,
-    /* 0x4b */ None,
-    /* 0x4c */ None,
-    /* 0x4d */ None,
-    /* 0x4e */ None,
-    /* 0x4f */ None,
-    /* 0x50 */ Some("POP"),
-    /* 0x51 */ Some("MLOAD"),
-    /* 0x52 */ Some("MSTORE"),
-    /* 0x53 */ Some("MSTORE8"),
-    /* 0x54 */ Some("SLOAD"),
-    /* 0x55 */ Some("SSTORE"),
-    /* 0x56 */ Some("JUMP"),
-    /* 0x57 */ Some("JUMPI"),
-    /* 0x58 */ Some("PC"),
-    /* 0x59 */ Some("MSIZE"),
-    /* 0x5a */ Some("GAS"),
-    /* 0x5b */ Some("JUMPDEST"),
-    /* 0x5c */ None,
-    /* 0x5d */ None,
-    /* 0x5e */ None,
-    /* 0x5f */ Some("PUSH0"),
-    /* 0x60 */ Some("PUSH1"),
-    /* 0x61 */ Some("PUSH2"),
-    /* 0x62 */ Some("PUSH3"),
-    /* 0x63 */ Some("PUSH4"),
-    /* 0x64 */ Some("PUSH5"),
-    /* 0x65 */ Some("PUSH6"),
-    /* 0x66 */ Some("PUSH7"),
-    /* 0x67 */ Some("PUSH8"),
-    /* 0x68 */ Some("PUSH9"),
-    /* 0x69 */ Some("PUSH10"),
-    /* 0x6a */ Some("PUSH11"),
-    /* 0x6b */ Some("PUSH12"),
-    /* 0x6c */ Some("PUSH13"),
-    /* 0x6d */ Some("PUSH14"),
-    /* 0x6e */ Some("PUSH15"),
-    /* 0x6f */ Some("PUSH16"),
-    /* 0x70 */ Some("PUSH17"),
-    /* 0x71 */ Some("PUSH18"),
-    /* 0x72 */ Some("PUSH19"),
-    /* 0x73 */ Some("PUSH20"),
-    /* 0x74 */ Some("PUSH21"),
-    /* 0x75 */ Some("PUSH22"),
-    /* 0x76 */ Some("PUSH23"),
-    /* 0x77 */ Some("PUSH24"),
-    /* 0x78 */ Some("PUSH25"),
-    /* 0x79 */ Some("PUSH26"),
-    /* 0x7a */ Some("PUSH27"),
-    /* 0x7b */ Some("PUSH28"),
-    /* 0x7c */ Some("PUSH29"),
-    /* 0x7d */ Some("PUSH30"),
-    /* 0x7e */ Some("PUSH31"),
-    /* 0x7f */ Some("PUSH32"),
-    /* 0x80 */ Some("DUP1"),
-    /* 0x81 */ Some("DUP2"),
-    /* 0x82 */ Some("DUP3"),
-    /* 0x83 */ Some("DUP4"),
-    /* 0x84 */ Some("DUP5"),
-    /* 0x85 */ Some("DUP6"),
-    /* 0x86 */ Some("DUP7"),
-    /* 0x87 */ Some("DUP8"),
-    /* 0x88 */ Some("DUP9"),
-    /* 0x89 */ Some("DUP10"),
-    /* 0x8a */ Some("DUP11"),
-    /* 0x8b */ Some("DUP12"),
-    /* 0x8c */ Some("DUP13"),
-    /* 0x8d */ Some("DUP14"),
-    /* 0x8e */ Some("DUP15"),
-    /* 0x8f */ Some("DUP16"),
-    /* 0x90 */ Some("SWAP1"),
-    /* 0x91 */ Some("SWAP2"),
-    /* 0x92 */ Some("SWAP3"),
-    /* 0x93 */ Some("SWAP4"),
-    /* 0x94 */ Some("SWAP5"),
-    /* 0x95 */ Some("SWAP6"),
-    /* 0x96 */ Some("SWAP7"),
-    /* 0x97 */ Some("SWAP8"),
-    /* 0x98 */ Some("SWAP9"),
-    /* 0x99 */ Some("SWAP10"),
-    /* 0x9a */ Some("SWAP11"),
-    /* 0x9b */ Some("SWAP12"),
-    /* 0x9c */ Some("SWAP13"),
-    /* 0x9d */ Some("SWAP14"),
-    /* 0x9e */ Some("SWAP15"),
-    /* 0x9f */ Some("SWAP16"),
-    /* 0xa0 */ Some("LOG0"),
-    /* 0xa1 */ Some("LOG1"),
-    /* 0xa2 */ Some("LOG2"),
-    /* 0xa3 */ Some("LOG3"),
-    /* 0xa4 */ Some("LOG4"),
-    /* 0xa5 */ None,
-    /* 0xa6 */ None,
-    /* 0xa7 */ None,
-    /* 0xa8 */ None,
-    /* 0xa9 */ None,
-    /* 0xaa */ None,
-    /* 0xab */ None,
-    /* 0xac */ None,
-    /* 0xad */ None,
-    /* 0xae */ None,
-    /* 0xaf */ None,
-    /* 0xb0 */ None,
-    /* 0xb1 */ None,
-    /* 0xb2 */ None,
-    /* 0xb3 */ None,
-    /* 0xb4 */ None,
-    /* 0xb5 */ None,
-    /* 0xb6 */ None,
-    /* 0xb7 */ None,
-    /* 0xb8 */ None,
-    /* 0xb9 */ None,
-    /* 0xba */ None,
-    /* 0xbb */ None,
-    /* 0xbc */ None,
-    /* 0xbd */ None,
-    /* 0xbe */ None,
-    /* 0xbf */ None,
-    /* 0xc0 */ None,
-    /* 0xc1 */ None,
-    /* 0xc2 */ None,
-    /* 0xc3 */ None,
-    /* 0xc4 */ None,
-    /* 0xc5 */ None,
-    /* 0xc6 */ None,
-    /* 0xc7 */ None,
-    /* 0xc8 */ None,
-    /* 0xc9 */ None,
-    /* 0xca */ None,
-    /* 0xcb */ None,
-    /* 0xcc */ None,
-    /* 0xcd */ None,
-    /* 0xce */ None,
-    /* 0xcf */ None,
-    /* 0xd0 */ None,
-    /* 0xd1 */ None,
-    /* 0xd2 */ None,
-    /* 0xd3 */ None,
-    /* 0xd4 */ None,
-    /* 0xd5 */ None,
-    /* 0xd6 */ None,
-    /* 0xd7 */ None,
-    /* 0xd8 */ None,
-    /* 0xd9 */ None,
-    /* 0xda */ None,
-    /* 0xdb */ None,
-    /* 0xdc */ None,
-    /* 0xdd */ None,
-    /* 0xde */ None,
-    /* 0xdf */ None,
-    /* 0xe0 */ None,
-    /* 0xe1 */ None,
-    /* 0xe2 */ None,
-    /* 0xe3 */ None,
-    /* 0xe4 */ None,
-    /* 0xe5 */ None,
-    /* 0xe6 */ None,
-    /* 0xe7 */ None,
-    /* 0xe8 */ None,
-    /* 0xe9 */ None,
-    /* 0xea */ None,
-    /* 0xeb */ None,
-    /* 0xec */ None,
-    /* 0xed */ None,
-    /* 0xee */ None,
-    /* 0xef */ None,
-    /* 0xf0 */ Some("CREATE"),
-    /* 0xf1 */ Some("CALL"),
-    /* 0xf2 */ Some("CALLCODE"),
-    /* 0xf3 */ Some("RETURN"),
-    /* 0xf4 */ Some("DELEGATECALL"),
-    /* 0xf5 */ Some("CREATE2"),
-    /* 0xf6 */ None,
-    /* 0xf7 */ None,
-    /* 0xf8 */ None,
-    /* 0xf9 */ None,
-    /* 0xfa */ Some("STATICCALL"),
-    /* 0xfb */ None,
-    /* 0xfc */ None,
-    /* 0xfd */ Some("REVERT"),
-    /* 0xfe */ Some("INVALID"),
-    /* 0xff */ Some("SELFDESTRUCT"),
+pub const OPCODE_JUMPMAP: [OpCodes; 256] = [
+    /* 0x00 */ OpCodes::Stop,
+    /* 0x01 */ OpCodes::Add,
+    /* 0x02 */ OpCodes::Mul,
+    /* 0x03 */ OpCodes::Sub,
+    /* 0x04 */ OpCodes::Div,
+    /* 0x05 */ OpCodes::Sdiv,
+    /* 0x06 */ OpCodes::Mod,
+    /* 0x07 */ OpCodes::Smod,
+    /* 0x08 */ OpCodes::Addmod,
+    /* 0x09 */ OpCodes::Mulmod,
+    /* 0x0a */ OpCodes::Exp,
+    /* 0x0b */ OpCodes::Signextend,
+    /* 0x0c */ OpCodes::Invalid,
+    /* 0x0d */ OpCodes::Invalid,
+    /* 0x0e */ OpCodes::Invalid,
+    /* 0x0f */ OpCodes::Invalid,
+    /* 0x10 */ OpCodes::Lt,
+    /* 0x11 */ OpCodes::Gt,
+    /* 0x12 */ OpCodes::Slt,
+    /* 0x13 */ OpCodes::Sgt,
+    /* 0x14 */ OpCodes::Eq,
+    /* 0x15 */ OpCodes::Iszero,
+    /* 0x16 */ OpCodes::And,
+    /* 0x17 */ OpCodes::Or,
+    /* 0x18 */ OpCodes::Xor,
+    /* 0x19 */ OpCodes::Not,
+    /* 0x1a */ OpCodes::Byte,
+    /* 0x1b */ OpCodes::Shl,
+    /* 0x1c */ OpCodes::Shr,
+    /* 0x1d */ OpCodes::Sar,
+    /* 0x1e */ OpCodes::Invalid,
+    /* 0x1f */ OpCodes::Invalid,
+    /* 0x20 */ OpCodes::Sha3,
+    /* 0x21 */ OpCodes::Invalid,
+    /* 0x22 */ OpCodes::Invalid,
+    /* 0x23 */ OpCodes::Invalid,
+    /* 0x24 */ OpCodes::Invalid,
+    /* 0x25 */ OpCodes::Invalid,
+    /* 0x26 */ OpCodes::Invalid,
+    /* 0x27 */ OpCodes::Invalid,
+    /* 0x28 */ OpCodes::Invalid,
+    /* 0x29 */ OpCodes::Invalid,
+    /* 0x2a */ OpCodes::Invalid,
+    /* 0x2b */ OpCodes::Invalid,
+    /* 0x2c */ OpCodes::Invalid,
+    /* 0x2d */ OpCodes::Invalid,
+    /* 0x2e */ OpCodes::Invalid,
+    /* 0x2f */ OpCodes::Invalid,
+    /* 0x30 */ OpCodes::Address,
+    /* 0x31 */ OpCodes::Balance,
+    /* 0x32 */ OpCodes::Origin,
+    /* 0x33 */ OpCodes::Caller,
+    /* 0x34 */ OpCodes::Callvalue,
+    /* 0x35 */ OpCodes::Calldataload,
+    /* 0x36 */ OpCodes::Calldatasize,
+    /* 0x37 */ OpCodes::Calldatacopy,
+    /* 0x38 */ OpCodes::Codesize,
+    /* 0x39 */ OpCodes::Codecopy,
+    /* 0x3a */ OpCodes::Gasprice,
+    /* 0x3b */ OpCodes::Extcodesize,
+    /* 0x3c */ OpCodes::Extcodecopy,
+    /* 0x3d */ OpCodes::Returndatasize,
+    /* 0x3e */ OpCodes::Returndatacopy,
+    /* 0x3f */ OpCodes::Extcodehash,
+    /* 0x40 */ OpCodes::Blockhash,
+    /* 0x41 */ OpCodes::Coinbase,
+    /* 0x42 */ OpCodes::Timestamp,
+    /* 0x43 */ OpCodes::Number,
+    /* 0x44 */ OpCodes::Difficulty,
+    /* 0x45 */ OpCodes::Gaslimit,
+    /* 0x46 */ OpCodes::Chainid,
+    /* 0x47 */ OpCodes::Selfbalance,
+    /* 0x48 */ OpCodes::Basefee,
+    /* 0x49 */ OpCodes::Invalid,
+    /* 0x4a */ OpCodes::Invalid,
+    /* 0x4b */ OpCodes::Invalid,
+    /* 0x4c */ OpCodes::Invalid,
+    /* 0x4d */ OpCodes::Invalid,
+    /* 0x4e */ OpCodes::Invalid,
+    /* 0x4f */ OpCodes::Invalid,
+    /* 0x50 */ OpCodes::Pop,
+    /* 0x51 */ OpCodes::Mload,
+    /* 0x52 */ OpCodes::Mstore,
+    /* 0x53 */ OpCodes::Mstore8,
+    /* 0x54 */ OpCodes::Sload,
+    /* 0x55 */ OpCodes::Sstore,
+    /* 0x56 */ OpCodes::Jump,
+    /* 0x57 */ OpCodes::Jumpi,
+    /* 0x58 */ OpCodes::Pc,
+    /* 0x59 */ OpCodes::Msize,
+    /* 0x5a */ OpCodes::Gas,
+    /* 0x5b */ OpCodes::Jumpdest,
+    /* 0x5c */ OpCodes::Invalid,
+    /* 0x5d */ OpCodes::Invalid,
+    /* 0x5e */ OpCodes::Invalid,
+    /* 0x5f */ OpCodes::Push0,
+    /* 0x60 */ OpCodes::Push1,
+    /* 0x61 */ OpCodes::Push2,
+    /* 0x62 */ OpCodes::Push3,
+    /* 0x63 */ OpCodes::Push4,
+    /* 0x64 */ OpCodes::Push5,
+    /* 0x65 */ OpCodes::Push6,
+    /* 0x66 */ OpCodes::Push7,
+    /* 0x67 */ OpCodes::Push8,
+    /* 0x68 */ OpCodes::Push9,
+    /* 0x69 */ OpCodes::Push10,
+    /* 0x6a */ OpCodes::Push11,
+    /* 0x6b */ OpCodes::Push12,
+    /* 0x6c */ OpCodes::Push13,
+    /* 0x6d */ OpCodes::Push14,
+    /* 0x6e */ OpCodes::Push15,
+    /* 0x6f */ OpCodes::Push16,
+    /* 0x70 */ OpCodes::Push17,
+    /* 0x71 */ OpCodes::Push18,
+    /* 0x72 */ OpCodes::Push19,
+    /* 0x73 */ OpCodes::Push20,
+    /* 0x74 */ OpCodes::Push21,
+    /* 0x75 */ OpCodes::Push22,
+    /* 0x76 */ OpCodes::Push23,
+    /* 0x77 */ OpCodes::Push24,
+    /* 0x78 */ OpCodes::Push25,
+    /* 0x79 */ OpCodes::Push26,
+    /* 0x7a */ OpCodes::Push27,
+    /* 0x7b */ OpCodes::Push28,
+    /* 0x7c */ OpCodes::Push29,
+    /* 0x7d */ OpCodes::Push30,
+    /* 0x7e */ OpCodes::Push31,
+    /* 0x7f */ OpCodes::Push32,
+    /* 0x80 */ OpCodes::Dup1,
+    /* 0x81 */ OpCodes::Dup2,
+    /* 0x82 */ OpCodes::Dup3,
+    /* 0x83 */ OpCodes::Dup4,
+    /* 0x84 */ OpCodes::Dup5,
+    /* 0x85 */ OpCodes::Dup6,
+    /* 0x86 */ OpCodes::Dup7,
+    /* 0x87 */ OpCodes::Dup8,
+    /* 0x88 */ OpCodes::Dup9,
+    /* 0x89 */ OpCodes::Dup10,
+    /* 0x8a */ OpCodes::Dup11,
+    /* 0x8b */ OpCodes::Dup12,
+    /* 0x8c */ OpCodes::Dup13,
+    /* 0x8d */ OpCodes::Dup14,
+    /* 0x8e */ OpCodes::Dup15,
+    /* 0x8f */ OpCodes::Dup16,
+    /* 0x90 */ OpCodes::Swap1,
+    /* 0x91 */ OpCodes::Swap2,
+    /* 0x92 */ OpCodes::Swap3,
+    /* 0x93 */ OpCodes::Swap4,
+    /* 0x94 */ OpCodes::Swap5,
+    /* 0x95 */ OpCodes::Swap6,
+    /* 0x96 */ OpCodes::Swap7,
+    /* 0x97 */ OpCodes::Swap8,
+    /* 0x98 */ OpCodes::Swap9,
+    /* 0x99 */ OpCodes::Swap10,
+    /* 0x9a */ OpCodes::Swap11,
+    /* 0x9b */ OpCodes::Swap12,
+    /* 0x9c */ OpCodes::Swap13,
+    /* 0x9d */ OpCodes::Swap14,
+    /* 0x9e */ OpCodes::Swap15,
+    /* 0x9f */ OpCodes::Swap16,
+    /* 0xa0 */ OpCodes::Log0,
+    /* 0xa1 */ OpCodes::Log1,
+    /* 0xa2 */ OpCodes::Log2,
+    /* 0xa3 */ OpCodes::Log3,
+    /* 0xa4 */ OpCodes::Log4,
+    /* 0xa5 */ OpCodes::Invalid,
+    /* 0xa6 */ OpCodes::Invalid,
+    /* 0xa7 */ OpCodes::Invalid,
+    /* 0xa8 */ OpCodes::Invalid,
+    /* 0xa9 */ OpCodes::Invalid,
+    /* 0xaa */ OpCodes::Invalid,
+    /* 0xab */ OpCodes::Invalid,
+    /* 0xac */ OpCodes::Invalid,
+    /* 0xad */ OpCodes::Invalid,
+    /* 0xae */ OpCodes::Invalid,
+    /* 0xaf */ OpCodes::Invalid,
+    /* 0xb0 */ OpCodes::Invalid,
+    /* 0xb1 */ OpCodes::Invalid,
+    /* 0xb2 */ OpCodes::Invalid,
+    /* 0xb3 */ OpCodes::Invalid,
+    /* 0xb4 */ OpCodes::Invalid,
+    /* 0xb5 */ OpCodes::Invalid,
+    /* 0xb6 */ OpCodes::Invalid,
+    /* 0xb7 */ OpCodes::Invalid,
+    /* 0xb8 */ OpCodes::Invalid,
+    /* 0xb9 */ OpCodes::Invalid,
+    /* 0xba */ OpCodes::Invalid,
+    /* 0xbb */ OpCodes::Invalid,
+    /* 0xbc */ OpCodes::Invalid,
+    /* 0xbd */ OpCodes::Invalid,
+    /* 0xbe */ OpCodes::Invalid,
+    /* 0xbf */ OpCodes::Invalid,
+    /* 0xc0 */ OpCodes::Invalid,
+    /* 0xc1 */ OpCodes::Invalid,
+    /* 0xc2 */ OpCodes::Invalid,
+    /* 0xc3 */ OpCodes::Invalid,
+    /* 0xc4 */ OpCodes::Invalid,
+    /* 0xc5 */ OpCodes::Invalid,
+    /* 0xc6 */ OpCodes::Invalid,
+    /* 0xc7 */ OpCodes::Invalid,
+    /* 0xc8 */ OpCodes::Invalid,
+    /* 0xc9 */ OpCodes::Invalid,
+    /* 0xca */ OpCodes::Invalid,
+    /* 0xcb */ OpCodes::Invalid,
+    /* 0xcc */ OpCodes::Invalid,
+    /* 0xcd */ OpCodes::Invalid,
+    /* 0xce */ OpCodes::Invalid,
+    /* 0xcf */ OpCodes::Invalid,
+    /* 0xd0 */ OpCodes::Invalid,
+    /* 0xd1 */ OpCodes::Invalid,
+    /* 0xd2 */ OpCodes::Invalid,
+    /* 0xd3 */ OpCodes::Invalid,
+    /* 0xd4 */ OpCodes::Invalid,
+    /* 0xd5 */ OpCodes::Invalid,
+    /* 0xd6 */ OpCodes::Invalid,
+    /* 0xd7 */ OpCodes::Invalid,
+    /* 0xd8 */ OpCodes::Invalid,
+    /* 0xd9 */ OpCodes::Invalid,
+    /* 0xda */ OpCodes::Invalid,
+    /* 0xdb */ OpCodes::Invalid,
+    /* 0xdc */ OpCodes::Invalid,
+    /* 0xdd */ OpCodes::Invalid,
+    /* 0xde */ OpCodes::Invalid,
+    /* 0xdf */ OpCodes::Invalid,
+    /* 0xe0 */ OpCodes::Invalid,
+    /* 0xe1 */ OpCodes::Invalid,
+    /* 0xe2 */ OpCodes::Invalid,
+    /* 0xe3 */ OpCodes::Invalid,
+    /* 0xe4 */ OpCodes::Invalid,
+    /* 0xe5 */ OpCodes::Invalid,
+    /* 0xe6 */ OpCodes::Invalid,
+    /* 0xe7 */ OpCodes::Invalid,
+    /* 0xe8 */ OpCodes::Invalid,
+    /* 0xe9 */ OpCodes::Invalid,
+    /* 0xea */ OpCodes::Invalid,
+    /* 0xeb */ OpCodes::Invalid,
+    /* 0xec */ OpCodes::Invalid,
+    /* 0xed */ OpCodes::Invalid,
+    /* 0xee */ OpCodes::Invalid,
+    /* 0xef */ OpCodes::Invalid,
+    /* 0xf0 */ OpCodes::Create,
+    /* 0xf1 */ OpCodes::Call,
+    /* 0xf2 */ OpCodes::Callcode,
+    /* 0xf3 */ OpCodes::Return,
+    /* 0xf4 */ OpCodes::Delegatecall,
+    /* 0xf5 */ OpCodes::Create2,
+    /* 0xf6 */ OpCodes::Invalid,
+    /* 0xf7 */ OpCodes::Invalid,
+    /* 0xf8 */ OpCodes::Invalid,
+    /* 0xf9 */ OpCodes::Invalid,
+    /* 0xfa */ OpCodes::Staticcall,
+    /* 0xfb */ OpCodes::Invalid,
+    /* 0xfc */ OpCodes::Invalid,
+    /* 0xfd */ OpCodes::Revert,
+    /* 0xfe */ OpCodes::Invalid,
+    /* 0xff */ OpCodes::Selfdestruct,
 ];

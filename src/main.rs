@@ -6,6 +6,7 @@ mod data;
 mod opcodes;
 mod prover;
 mod utils;
+mod z3;
 
 struct Function {
     name: String,

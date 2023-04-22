@@ -2,16 +2,11 @@
 
 use crate::{opcodes::OpCode, utils::get_slice};
 
-#[derive(Debug)]
-pub enum Op {
-    OpCode(OpCode),
-    U8(u8),
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Mnemonic<'a> {
     pub pc: usize,
-    pub op: Op,
+    pub op: OpCode,
+    // pub pushes: [u8; 32],
     pub pushes: &'a [u8],
 }
 
@@ -21,26 +16,22 @@ pub fn to_mnemonics(bytecode: &[u8]) -> Mnemonics {
     let (mut code, mut pc) = (Vec::new(), 0);
 
     while let Some(b) = bytecode.get(pc) {
-        let (op, pushes) = if let Some(op) = OpCode::try_from_u8(*b) {
-            let pushes = if let Some(push_size) = op.push_size() {
-                // write in buffer an skip until stop
+        let op = OpCode::from_u8(*b);
 
-                let range = (pc + 1)..(pc + 1 + push_size as usize);
+        let pushes = if let Some(push_size) = op.push_size() {
+            // write in buffer an skip until stop
 
-                pc += push_size as usize;
+            let range = (pc + 1)..(pc + 1 + push_size as usize);
 
-                get_slice(bytecode, range)
-            } else {
-                // non-push opcode
+            pc += push_size as usize;
 
-                &[]
-            };
-
-            (Op::OpCode(op), pushes)
+            let new_slice = get_slice(bytecode, range);
+            new_slice
         } else {
-            // invalid opcode
+            // non-push opcode
 
-            (Op::U8(*b), &[] as &[u8])
+            // zero
+            &[]
         };
 
         code.push(Mnemonic { pc, op, pushes });

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{fmt::Debug, ops::Range};
 
 pub type Word = [u8; 32];
@@ -11,6 +12,12 @@ pub struct Memory {
     data: Vec<u8>,
 }
 
+#[derive(Debug)]
+pub enum RevertReason {
+    StackUnderflow,
+    StackOverflow,
+}
+
 // TODO implement meaningful errors (e.g stack underflow, overflow)
 impl Stack {
     pub fn new() -> Self {
@@ -19,27 +26,30 @@ impl Stack {
         }
     }
 
-    pub fn push(&mut self, value: Word) -> bool {
+    pub fn push(&mut self, value: Word) -> Result<(), RevertReason> {
         if self.data.len() == 16 {
-            return false;
+            return Err(RevertReason::StackOverflow);
         }
 
         self.data.push(value);
-        true
+
+        Ok(())
     }
 
-    pub fn pop(&mut self) -> bool {
-        self.data.pop().is_some()
+    pub fn pop(&mut self) -> Result<Word, RevertReason> {
+        self.data.pop().ok_or(RevertReason::StackUnderflow)
     }
 
     /// dup the word at index n on the stack. Returns false if n is out of stack
-    pub fn dupn(&mut self, n: usize) -> bool {
+    pub fn dupn(&mut self, n: usize) -> Result<(), RevertReason> {
         let word = match self.data.get(n) {
             Some(w) => w,
-            None => return false,
+            None => return Err(RevertReason::StackUnderflow),
         };
 
-        self.push(*word)
+        self.push(*word);
+
+        Ok(())
     }
 
     /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
@@ -76,6 +86,28 @@ impl Memory {
     }
 }
 
+pub type Address = [u8; 20];
+pub type U256 = [u8; 32];
+
+pub struct Env {
+    caller: Address,
+    origin: Address,
+    coinbase: Address,
+    value: U256,
+    gas_limit: u64,
+    gas_price: u64,
+    nonce: u64,
+    timestamp: u32,
+    difficulty: U256,
+    number: u64,
+}
+
+pub struct State {
+    storage: HashMap<Address, HashMap<U256, U256>>,
+    code: HashMap<Address, Vec<u8>>,
+    balance: HashMap<Address, U256>,
+}
+
 impl Debug for Stack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // stack is easily visualized reversed
@@ -110,6 +142,15 @@ pub fn convert_to_bytes<N: Into<u128>>(n: N) -> Word {
     result[..16].copy_from_slice(&bytes);
     result[16..].copy_from_slice(&bytes);
     result
+}
+
+pub fn to_word(val: &[u8]) -> Word {
+    let mut slice = [0u8; 32];
+
+    let len = slice.len().min(val.len());
+    slice[..len].copy_from_slice(&val[..len]);
+
+    slice
 }
 
 #[test]
