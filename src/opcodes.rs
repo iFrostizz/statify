@@ -167,9 +167,22 @@ impl OpCode {
         self.0 >= 95 && self.0 < 128
     }
 
+    pub fn is_dup(&self) -> bool {
+        self.0 >= 128 && self.0 < 144
+    }
+
     pub fn push_size(&self) -> Option<u8> {
         if self.is_push() {
+            // starts at 0
             Some(self.0 - 95)
+        } else {
+            None
+        }
+    }
+
+    pub fn dup_size(&self) -> Option<u8> {
+        if self.is_dup() {
+            Some(self.0 - 128 + 1)
         } else {
             None
         }
