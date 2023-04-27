@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::Add;
+use std::ops::{Add, Div, Sub};
 use std::{fmt::Debug, ops::Range};
 
 use z3::ast::BV;
@@ -154,10 +154,14 @@ impl EVMMemory {
 }
 
 pub type Address = [u8; 20];
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct U256([u8; 32]);
 
 impl U256 {
+    fn min_value() -> Self {
+        Self([u8::min_value(); 32])
+    }
+
     fn max_value() -> Self {
         Self([u8::max_value(); 32])
     }
@@ -166,18 +170,54 @@ impl U256 {
 impl Add for U256 {
     type Output = Self;
 
-    fn add(self, other: Self) -> Self {
+    fn add(self, rhs: Self) -> Self {
         let mut result = [0u8; 32];
         let mut carry = false;
 
         (0..32).for_each(|i| {
-            let sum = u16::from(self.0[i]) + u16::from(other.0[i]) + u16::from(carry);
-            result[i] = sum as u8;
-            carry = sum > 0xFF;
+            let sum = u16::from(self.0[i]) + u16::from(rhs.0[i]) + u16::from(carry);
+            result[i] = sum as u8; // modulo 256
+            carry = sum > 0xFF; // remove any number in bounds
         });
 
-        // TODO: add the last carry in the loop
-        result[0] = result[0].saturating_add(u8::from(carry));
+        // if the last carry is still on, handle wrapping
+        if carry {
+            (0..32).for_each(|i| {
+                let sum = u16::from(result[i]) + u16::from(carry);
+                result[i] = sum as u8;
+                carry = sum > 0xFF;
+            });
+        }
+
+        Self(result)
+    }
+}
+
+impl Sub for U256 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut result = [0u8; 32];
+        let mut carry = false;
+
+        (0..32).for_each(|i| {
+            let sum = u16::from(self.0[i])
+                .overflowing_sub(u16::from(rhs.0[i]))
+                .0
+                .overflowing_sub(u16::from(carry))
+                .0;
+            result[i] = sum as u8; // modulo 256
+            carry = sum > 0xFF; // remove any number in bounds
+        });
+
+        // if the last carry is still on, handle wrapping
+        if carry {
+            (0..32).for_each(|i| {
+                let sum = u16::from(result[i]).overflowing_sub(u16::from(carry)).0;
+                result[i] = sum as u8;
+                carry = sum > 0xFF;
+            });
+        }
 
         Self(result)
     }
@@ -219,9 +259,38 @@ fn add_u256() {
     let b = U256::from(128u8);
     assert_eq!(a + b, U256::from(u8::max_value()));
 
+    // wrapping
     let a = U256::max_value();
     let b = U256::max_value();
     assert_eq!(a + b, U256::max_value());
+
+    let a = U256::max_value();
+    let b = U256::from(1u8);
+    assert_eq!(a + b, b);
+}
+
+#[test]
+fn sub_u256() {
+    let a = U256::from(1u8);
+    let b = U256::from(2u8);
+    assert_eq!(b - a, U256::from(1u8));
+
+    let a = U256::from(127u8);
+    let b = U256::from(128u8);
+    assert_eq!(b - a, U256::from(1u8));
+
+    let a = U256::max_value();
+    let b = U256::max_value();
+    assert_eq!(b - a, U256::min_value());
+
+    // wrapping
+    let a = U256::max_value();
+    let b = U256::from(1u8);
+    assert_eq!(b - a, b);
+
+    let a = U256::from(1u8);
+    let b = U256::from(2u8);
+    assert_eq!(a - b, U256::max_value() - a); // -1
 }
 
 impl Iterator for U256 {
