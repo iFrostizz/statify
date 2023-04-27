@@ -1,14 +1,18 @@
-use std::collections::HashMap;
-use std::ops::{Add, Div, Sub};
-use std::{fmt::Debug, ops::Range};
-
-use z3::ast::BV;
-use z3::Context;
+#![feature(step_trait)]
 
 use crate::z3::word_to_bv;
+use core::cmp::Ordering;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    iter::Step,
+    ops::{Add, Range, Sub},
+};
+use z3::{ast::BV, Context};
 
 pub type Word = [u8; 32];
 
+#[derive(Default)]
 pub struct Stack {
     data: Vec<Word>,
 }
@@ -18,10 +22,20 @@ pub struct Memory {
     data: Vec<u8>,
 }
 
+// calldata inners behaviour is actually very similar to memory
+#[derive(Default)]
+pub struct Calldata {
+    data: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub enum RevertReason {
     StackUnderflow,
     StackOverflow,
+    /// An unsatisfied solve
+    Unsat,
+    /// Unknown solve status
+    Unknown,
 }
 
 impl Stack {
@@ -62,13 +76,14 @@ impl Stack {
     }
 
     /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
-    pub fn swapn(&mut self, n: usize) -> bool {
-        if self.data.get(n).is_none() {
-            return false;
+    pub fn swapn(&mut self, n: usize) -> Result<(), RevertReason> {
+        match self.data.get(n) {
+            Some(_) => {
+                self.data.swap(0, n);
+                Ok(())
+            }
+            None => Err(RevertReason::StackUnderflow),
         }
-
-        self.data.swap(0, n);
-        true
     }
 }
 
@@ -83,21 +98,23 @@ impl EVMStack {
         }
     }
 
+    /// push a 32 bytes value to the stack
     pub fn push(&mut self, value: Word) -> Result<(), RevertReason> {
         self.stack.push(value)
     }
 
+    /// pop the front element of the stack and return it
     pub fn pop(&mut self) -> Result<Word, RevertReason> {
         self.stack.pop()
     }
 
-    /// dup the word at index n on the stack. Returns false if n is out of stack
+    /// dup the word at index n on the stack
     pub fn dupn(&mut self, n: usize) -> Result<(), RevertReason> {
         self.stack.dupn(n)
     }
 
-    /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
-    pub fn swapn(&mut self, n: usize) -> bool {
+    /// swap the first word with the one at index n on the stack
+    pub fn swapn(&mut self, n: usize) -> Result<(), RevertReason> {
         self.stack.swapn(n)
     }
 
@@ -125,11 +142,14 @@ impl Memory {
 
     /// get a vec of words in the memory at offset
     pub fn get(&self, r: Range<U256>) -> Vec<u8> {
-        // r.into_iter()
-        //     .map(|o| *self.data.get(o).unwrap_or(&0))
-        //     .collect()
-
-        todo!();
+        r.into_iter()
+            .map(|o| {
+                *self
+                    .data
+                    .get(std::convert::Into::<usize>::into(o))
+                    .unwrap_or(&0u8)
+            }) // 0 if out of bounds
+            .collect()
     }
 }
 
@@ -140,7 +160,9 @@ pub struct EVMMemory {
 
 impl EVMMemory {
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            memory: Memory::new(),
+        }
     }
 
     pub fn mload(&self, offset: U256) -> Word {
@@ -149,6 +171,29 @@ impl EVMMemory {
         // slice.copy_from_slice(&vec);
         // slice
 
+        todo!()
+    }
+}
+
+impl Calldata {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+#[derive(Default)]
+pub struct EVMCalldata {
+    calldata: Calldata,
+}
+
+impl EVMCalldata {
+    pub fn new() -> Self {
+        Self {
+            calldata: Calldata::new(),
+        }
+    }
+
+    pub fn load(&self, i: usize) -> Word {
         todo!()
     }
 }
@@ -164,6 +209,10 @@ impl U256 {
 
     fn max_value() -> Self {
         Self([u8::max_value(); 32])
+    }
+
+    fn zero() -> Self {
+        Self::min_value()
     }
 }
 
@@ -223,7 +272,30 @@ impl Sub for U256 {
     }
 }
 
-macro_rules! impl_from {
+impl Step for U256 {
+    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
+        let diff = *end - *start;
+        if diff > U256::from(usize::max_value()) {
+            None
+        } else {
+            let mut out = usize::min_value().to_le_bytes();
+            let val = &diff.0[0..(out.len())];
+            out.copy_from_slice(val);
+
+            Some(usize::from_le_bytes(out))
+        }
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(start + U256::from(count))
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(start - U256::from(count))
+    }
+}
+
+macro_rules! impl_num {
     ($From: ty) => {
         impl From<$From> for U256 {
             fn from(value: $From) -> Self {
@@ -240,14 +312,80 @@ macro_rules! impl_from {
                 U256(inner)
             }
         }
+
+        impl Into<$From> for U256 {
+            fn into(self) -> $From {
+                if self > <$From>::max_value() {
+                    <$From>::max_value()
+                } else {
+                    let diff = self - U256::from(<$From>::max_value());
+                    let mut out = <$From>::min_value().to_le_bytes();
+                    let val = &diff.0[0..(out.len())];
+                    out.copy_from_slice(val);
+
+                    <$From>::from_le_bytes(out)
+                }
+            }
+        }
+
+        impl PartialEq<$From> for U256 {
+            fn eq(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 == other
+            }
+
+            fn ne(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 != other
+            }
+        }
+
+        impl PartialOrd<$From> for U256 {
+            fn partial_cmp(&self, other: &$From) -> Option<Ordering> {
+                if self > &U256::from(*other) {
+                    Some(Ordering::Greater)
+                } else if self < &U256::from(*other) {
+                    Some(Ordering::Less)
+                } else {
+                    Some(Ordering::Equal)
+                }
+            }
+
+            fn lt(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 < other
+            }
+
+            fn le(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 <= other
+            }
+
+            fn gt(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 > other
+            }
+
+            fn ge(&self, other: &$From) -> bool {
+                let other = [0; 32];
+
+                self.0 >= other
+            }
+        }
     };
 }
 
-impl_from!(u8);
-impl_from!(u16);
-impl_from!(u32);
-impl_from!(u64);
-impl_from!(u128);
+impl_num!(u8);
+impl_num!(u16);
+impl_num!(u32);
+impl_num!(u64);
+impl_num!(usize);
+impl_num!(u128);
 
 #[test]
 fn add_u256() {
