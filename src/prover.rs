@@ -49,7 +49,13 @@ impl<'a> Prover<'a> {
                 Lt => {
                     let a = stack.pop_bv(&self.ctx, "a")?;
                     let b = stack.pop_bv(&self.ctx, "b")?;
-                    sol.assert(&b.bvult(&a));
+                    sol.assert(&a.bvult(&b));
+                    sol.push();
+                }
+                Gt => {
+                    let a = stack.pop_bv(&self.ctx, "a")?;
+                    let b = stack.pop_bv(&self.ctx, "b")?;
+                    sol.assert(&a.bvugt(&b));
                     sol.push();
                 }
                 Push0 | Push1 | Push2 | Push3 | Push4 | Push5 | Push6 | Push7 | Push8 | Push9
@@ -79,12 +85,15 @@ impl<'a> Prover<'a> {
                         arr[31] = 1;
                     }
                     stack.push(arr)?;
+                    dbg!(a, b);
 
                     // TODO: can also feed in 32 bytes ?
                     // let a = stack.pop_bv(&self.ctx, "a")?;
                     // let b = stack.pop_bv(&self.ctx, "b")?;
+                    // let a = word_to_bv(&self.ctx, "a", a);
+                    // let b = word_to_bv(&self.ctx, "a", b);
+                    // dbg!(&a, &b);
                     sol.assert(&Bool::from_bool(&self.ctx, b.eq(&a)));
-                    // sol.assert(word_to_bv(&self.ctx, "a", a)._eq(word_to_bv(&self.ctx, "b", b)));
                     sol.push();
                 }
                 Mload => {
