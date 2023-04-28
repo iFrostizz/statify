@@ -24,5 +24,5 @@ fn main() {
     let code = [0x60, 0x10];
     let mnemonics = to_mnemonics(&code);
 
-    dbg!(&mnemonics);
+    // dbg!(&mnemonics);
 }

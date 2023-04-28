@@ -5,7 +5,7 @@ use core::cmp::Ordering;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    iter::Step,
+    // iter::Step,
     ops::{Add, Range, Sub},
 };
 use z3::{ast::BV, Context};
@@ -87,6 +87,7 @@ impl Stack {
     }
 }
 
+#[derive(Debug)]
 pub struct EVMStack {
     stack: Stack,
 }
@@ -132,6 +133,8 @@ impl Memory {
 
     /// set a vec of words in the memory at offset
     pub fn set(&mut self, offset: usize, words: Vec<u8>) {
+        // dbg!(offset);
+        // dbg!(offset + words.len());
         let len = self.data.len();
         if len <= offset {
             self.data.resize(len + words.len(), 0);
@@ -141,19 +144,14 @@ impl Memory {
     }
 
     /// get a vec of words in the memory at offset
-    pub fn get(&self, r: Range<U256>) -> Vec<u8> {
+    pub fn get(&self, r: Range<usize>) -> Vec<u8> {
         r.into_iter()
-            .map(|o| {
-                *self
-                    .data
-                    .get(std::convert::Into::<usize>::into(o))
-                    .unwrap_or(&0u8)
-            }) // 0 if out of bounds
+            .map(|o| *self.data.get(o).unwrap_or(&0u8)) // 0 if out of bounds
             .collect()
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct EVMMemory {
     memory: Memory,
 }
@@ -166,18 +164,34 @@ impl EVMMemory {
     }
 
     pub fn mload(&self, offset: U256) -> Word {
-        // let mut slice = [0u8; 32];
-        // let vec = self.memory.get(offset..(offset + 32));
-        // slice.copy_from_slice(&vec);
-        // slice
+        let off: usize = offset.into();
+        let mut ret = [0; 32];
+        let mem = self.memory.get(off..(off + 32));
+        ret.copy_from_slice(&mem);
+        ret
+    }
 
-        todo!()
+    pub fn mstore(&mut self, offset: U256, value: Word) {
+        self.memory.set(offset.into(), value.to_vec());
+    }
+
+    pub fn mbig_load(&self, from: U256, to: U256) -> Vec<u8> {
+        let from: usize = from.into();
+        let to: usize = to.into();
+        // dbg!(&from, to);
+        self.memory.get(from..to)
     }
 }
 
 impl Calldata {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn get(&self, r: Range<usize>) -> Vec<u8> {
+        r.into_iter()
+            .map(|o| *self.data.get(o).unwrap_or(&0u8)) // 0 if out of bounds
+            .collect()
     }
 }
 
@@ -193,8 +207,18 @@ impl EVMCalldata {
         }
     }
 
-    pub fn load(&self, i: usize) -> Word {
-        todo!()
+    pub fn from(data: Vec<u8>) -> Self {
+        Self {
+            calldata: Calldata { data },
+        }
+    }
+
+    pub fn load(&self, offset: U256) -> Word {
+        let off: usize = offset.into();
+        let mut ret = [0; 32];
+        let mem = self.calldata.get(off..(off + 32));
+        ret.copy_from_slice(&mem);
+        ret
     }
 }
 
@@ -203,15 +227,19 @@ pub type Address = [u8; 20];
 pub struct U256([u8; 32]);
 
 impl U256 {
-    fn min_value() -> Self {
+    pub fn new(arr: [u8; 32]) -> Self {
+        Self(arr)
+    }
+
+    pub fn min_value() -> Self {
         Self([u8::min_value(); 32])
     }
 
-    fn max_value() -> Self {
+    pub fn max_value() -> Self {
         Self([u8::max_value(); 32])
     }
 
-    fn zero() -> Self {
+    pub fn zero() -> Self {
         Self::min_value()
     }
 }
@@ -272,28 +300,28 @@ impl Sub for U256 {
     }
 }
 
-impl Step for U256 {
-    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        let diff = *end - *start;
-        if diff > U256::from(usize::max_value()) {
-            None
-        } else {
-            let mut out = usize::min_value().to_le_bytes();
-            let val = &diff.0[0..(out.len())];
-            out.copy_from_slice(val);
+// impl Step for U256 {
+//     fn steps_between(start: &Self, end: &Self) -> Option<usize> {
+//         let diff = *end - *start;
+//         if diff > U256::from(usize::max_value()) {
+//             None
+//         } else {
+//             let mut out = usize::min_value().to_le_bytes();
+//             let val = &diff.0[0..(out.len())];
+//             out.copy_from_slice(val);
 
-            Some(usize::from_le_bytes(out))
-        }
-    }
+//             Some(usize::from_le_bytes(out))
+//         }
+//     }
 
-    fn forward_checked(start: Self, count: usize) -> Option<Self> {
-        Some(start + U256::from(count))
-    }
+//     fn forward_checked(start: Self, count: usize) -> Option<Self> {
+//         Some(start + U256::from(count))
+//     }
 
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        Some(start - U256::from(count))
-    }
-}
+//     fn backward_checked(start: Self, count: usize) -> Option<Self> {
+//         Some(start - U256::from(count))
+//     }
+// }
 
 macro_rules! impl_num {
     ($From: ty) => {
@@ -313,70 +341,79 @@ macro_rules! impl_num {
             }
         }
 
-        impl Into<$From> for U256 {
-            fn into(self) -> $From {
-                if self > <$From>::max_value() {
-                    <$From>::max_value()
-                } else {
-                    let diff = self - U256::from(<$From>::max_value());
-                    let mut out = <$From>::min_value().to_le_bytes();
-                    let val = &diff.0[0..(out.len())];
-                    out.copy_from_slice(val);
-
-                    <$From>::from_le_bytes(out)
-                }
+        impl From<U256> for $From {
+            fn from(value: U256) -> $From {
+                const MAX: usize = <$From>::max_value().to_le_bytes().len();
+                let mut ret = [0; MAX];
+                ret.copy_from_slice(&value.0[(32 - MAX)..]);
+                <$From>::from_be_bytes(ret)
             }
         }
 
-        impl PartialEq<$From> for U256 {
-            fn eq(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        // impl Into<$From> for U256 {
+        //     fn into(self) -> $From {
+        //         if self > <$From>::max_value() {
+        //             <$From>::max_value()
+        //         } else {
+        //             let diff = self - U256::from(<$From>::max_value());
+        //             let mut out = <$From>::min_value().to_le_bytes();
+        //             let val = &diff.0[0..(out.len())];
+        //             out.copy_from_slice(val);
 
-                self.0 == other
-            }
+        //             <$From>::from_le_bytes(out)
+        //         }
+        //     }
+        // }
 
-            fn ne(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        // impl PartialEq<$From> for U256 {
+        //     fn eq(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
 
-                self.0 != other
-            }
-        }
+        //         self.0 == other
+        //     }
 
-        impl PartialOrd<$From> for U256 {
-            fn partial_cmp(&self, other: &$From) -> Option<Ordering> {
-                if self > &U256::from(*other) {
-                    Some(Ordering::Greater)
-                } else if self < &U256::from(*other) {
-                    Some(Ordering::Less)
-                } else {
-                    Some(Ordering::Equal)
-                }
-            }
+        //     fn ne(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
 
-            fn lt(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        //         self.0 != other
+        //     }
+        // }
 
-                self.0 < other
-            }
+        // impl PartialOrd<$From> for U256 {
+        //     fn partial_cmp(&self, other: &$From) -> Option<Ordering> {
+        //         if self > &U256::from(*other) {
+        //             Some(Ordering::Greater)
+        //         } else if self < &U256::from(*other) {
+        //             Some(Ordering::Less)
+        //         } else {
+        //             Some(Ordering::Equal)
+        //         }
+        //     }
 
-            fn le(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        //     fn lt(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
 
-                self.0 <= other
-            }
+        //         self.0 < other
+        //     }
 
-            fn gt(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        //     fn le(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
 
-                self.0 > other
-            }
+        //         self.0 <= other
+        //     }
 
-            fn ge(&self, other: &$From) -> bool {
-                let other = [0; 32];
+        //     fn gt(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
 
-                self.0 >= other
-            }
-        }
+        //         self.0 > other
+        //     }
+
+        //     fn ge(&self, other: &$From) -> bool {
+        //         let other = [0; 32];
+
+        //         self.0 >= other
+        //     }
+        // }
     };
 }
 
@@ -464,29 +501,38 @@ pub struct State {
 
 impl Debug for Stack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // stack is easily visualized reversed
-        let mut data = self
-            .data
-            .iter()
-            .rev()
-            .fold(String::from("["), |d, w| format!("{d}, {}", hex::encode(w)));
+        // stack is easily visualized when reversed
+        let mut data = self.data.iter().rev();
 
-        data.push(']');
+        let mut data_str = if let Some(first) = data.next() {
+            data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
+                format!("{d}, {:?}", hex::encode(w))
+            })
+        } else {
+            String::from("[")
+        };
 
-        write!(f, "{}", data)
+        data_str.push(']');
+
+        write!(f, "{}", data_str)
     }
 }
 
 impl Debug for Memory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut data = self
-            .data
-            .chunks(32)
-            .fold(String::from("["), |d, w| format!("{d}, {}", hex::encode(w)));
+        let mut data = self.data.chunks(32);
 
-        data.push(']');
+        let mut data_str = if let Some(first) = data.next() {
+            data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
+                format!("{d}, {:?}", hex::encode(w))
+            })
+        } else {
+            String::from("[")
+        };
 
-        write!(f, "{}", data)
+        data_str.push(']');
+
+        write!(f, "{}", data_str)
     }
 }
 
@@ -502,7 +548,7 @@ pub fn to_word(val: &[u8]) -> Word {
     let mut slice = [0u8; 32];
 
     let len = slice.len().min(val.len());
-    slice[..len].copy_from_slice(&val[..len]);
+    slice[(32 - len)..].copy_from_slice(&val[..len]);
 
     slice
 }
