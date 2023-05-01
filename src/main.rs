@@ -2,6 +2,7 @@ use self::bytecode::to_mnemonics;
 
 mod analysis;
 mod bytecode;
+mod config;
 mod data;
 mod opcodes;
 mod prover;
@@ -24,5 +25,5 @@ fn main() {
     let code = [0x60, 0x10];
     let mnemonics = to_mnemonics(&code);
 
-    // dbg!(&mnemonics);
+    dbg!(&mnemonics);
 }

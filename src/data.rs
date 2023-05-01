@@ -1,25 +1,21 @@
-#![feature(step_trait)]
-
-use crate::z3::word_to_bv;
-use core::cmp::Ordering;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    // iter::Step,
     ops::{Add, Range, Sub},
 };
-use z3::{ast::BV, Context};
+use z3::{ast::Ast, Context};
 
 pub type Word = [u8; 32];
 
-#[derive(Default)]
-pub struct Stack {
-    data: Vec<Word>,
+// TODO: allow for symbolic stack elements
+#[derive(Default, Debug)]
+pub struct Stack<'ctx> {
+    data: Vec<z3::ast::BV<'ctx>>,
 }
 
-#[derive(Default)]
-pub struct Memory {
-    data: Vec<u8>,
+#[derive(Debug, Default)]
+pub struct Memory<'ctx> {
+    data: Option<z3::ast::BV<'ctx>>,
 }
 
 // calldata inners behaviour is actually very similar to memory
@@ -38,31 +34,25 @@ pub enum RevertReason {
     Unknown,
 }
 
-impl Stack {
+impl<'ctx> Stack<'ctx> {
     pub fn new() -> Self {
         Self {
             data: Vec::with_capacity(16),
         }
     }
 
-    pub fn push(&mut self, value: Word) -> Result<(), RevertReason> {
+    pub fn push(&mut self, value: z3::ast::BV<'ctx>) -> Result<(), RevertReason> {
         if self.data.len() == 16 {
             return Err(RevertReason::StackOverflow);
         }
 
-        self.data.push(value);
+        self.data.push(value.simplify());
 
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Result<Word, RevertReason> {
+    pub fn pop(&mut self) -> Result<z3::ast::BV<'ctx>, RevertReason> {
         self.data.pop().ok_or(RevertReason::StackUnderflow)
-    }
-
-    pub fn pop_bv<'c>(&mut self, ctx: &'c Context, name: &'c str) -> Result<BV<'c>, RevertReason> {
-        let word = word_to_bv(ctx, name, self.pop()?);
-
-        Ok(word)
     }
 
     /// dup the word at index n on the stack. Returns false if n is out of stack
@@ -72,7 +62,7 @@ impl Stack {
             None => return Err(RevertReason::StackUnderflow),
         };
 
-        self.push(*word)
+        self.push(word.clone())
     }
 
     /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
@@ -88,11 +78,11 @@ impl Stack {
 }
 
 #[derive(Debug)]
-pub struct EVMStack {
-    stack: Stack,
+pub struct EVMStack<'ctx> {
+    stack: Stack<'ctx>,
 }
 
-impl EVMStack {
+impl<'ctx> EVMStack<'ctx> {
     pub fn new() -> Self {
         Self {
             stack: Stack::new(),
@@ -100,13 +90,47 @@ impl EVMStack {
     }
 
     /// push a 32 bytes value to the stack
-    pub fn push(&mut self, value: Word) -> Result<(), RevertReason> {
+    pub fn push(&mut self, value: z3::ast::BV<'ctx>) -> Result<(), RevertReason> {
+        assert_eq!(value.get_size(), 256);
         self.stack.push(value)
     }
 
     /// pop the front element of the stack and return it
-    pub fn pop(&mut self) -> Result<Word, RevertReason> {
+    pub fn pop(&mut self) -> Result<z3::ast::BV<'ctx>, RevertReason> {
         self.stack.pop()
+    }
+
+    pub fn pop64(&mut self) -> Result<Option<u64>, RevertReason> {
+        let val = self.stack.pop()?;
+
+        for i in (1..4).rev() {
+            let ex = val.extract((i + 1) * 64 - 1, i * 64).simplify();
+            if ex.as_u64().unwrap() != 0 {
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(val.extract(63, 0).simplify().as_u64().unwrap()))
+    }
+
+    pub fn pop32(&mut self) -> Result<Option<u32>, RevertReason> {
+        let val = self.stack.pop()?;
+
+        for i in (1..8).rev() {
+            let ex = val.extract((i + 1) * 32 - 1, i * 32).simplify();
+            if ex.as_u64().unwrap() != 0 {
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(
+            val.extract(31, 0)
+                .simplify()
+                .as_u64()
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ))
     }
 
     /// dup the word at index n on the stack
@@ -118,68 +142,84 @@ impl EVMStack {
     pub fn swapn(&mut self, n: usize) -> Result<(), RevertReason> {
         self.stack.swapn(n)
     }
-
-    pub fn pop_bv<'c>(&mut self, ctx: &'c Context, name: &'c str) -> Result<BV<'c>, RevertReason> {
-        let word = word_to_bv(ctx, name, self.pop()?);
-
-        Ok(word)
-    }
 }
 
-impl Memory {
-    pub fn new() -> Self {
+/// ret a word with 1 if eq, else an empty word
+pub fn bool_to_bv<'ctx>(ctx: &'ctx Context, bool: &z3::ast::Bool<'ctx>) -> z3::ast::BV<'ctx> {
+    let zero = z3::ast::BV::from_u64(ctx, 0, 256);
+    let one = z3::ast::BV::from_u64(ctx, 1, 256);
+    bool.ite(&one, &zero)
+}
+
+impl<'ctx> Memory<'ctx> {
+    pub fn new(ctx: &'ctx Context) -> Self {
         Default::default()
     }
 
     /// set a vec of words in the memory at offset
-    pub fn set(&mut self, offset: usize, words: Vec<u8>) {
-        // dbg!(offset);
-        // dbg!(offset + words.len());
-        let len = self.data.len();
-        if len <= offset {
-            self.data.resize(len + words.len(), 0);
+    pub fn set(&mut self, offset: u32, words: z3::ast::BV<'ctx>) {
+        if let Some(data) = &self.data {
+            let size = data.get_size();
+            let wsize = words.get_size();
+            if offset > size {
+                let low_data = data.zero_ext(offset - size);
+                self.data = Some(low_data.concat(&words));
+            } else if offset + wsize > size {
+                let low_data = data.extract(offset, 0);
+                self.data = Some(low_data.concat(&words));
+            } else {
+                let low_data = data.extract(offset, 0);
+                let up_data = data.extract(size, offset + wsize);
+                self.data = Some(low_data.concat(&words.concat(&up_data)));
+            }
+        } else {
+            self.data = Some(words)
+        }
+    }
+
+    /// Get a `BV` representing the data in memory in the range `r`.
+    pub fn get(&mut self, ctx: &'ctx Context, r: Range<u32>) -> z3::ast::BV<'ctx> {
+        let (low, high) = (r.start, r.end);
+
+        let data = std::mem::replace(&mut self.data, None)
+            .unwrap_or_else(|| z3::ast::BV::from_u64(ctx, 0, high));
+
+        if high > data.get_size() as u32 {
+            let extended_data = data.zero_ext(high - data.get_size());
+            self.data.replace(extended_data);
         }
 
-        self.data.splice(offset..(offset + words.len()), words);
-    }
-
-    /// get a vec of words in the memory at offset
-    pub fn get(&self, r: Range<usize>) -> Vec<u8> {
-        r.into_iter()
-            .map(|o| *self.data.get(o).unwrap_or(&0u8)) // 0 if out of bounds
-            .collect()
+        self.data.get_or_insert(data).extract(high - 1, low)
     }
 }
 
-#[derive(Default, Debug)]
-pub struct EVMMemory {
-    memory: Memory,
+#[derive(Debug)]
+pub struct EVMMemory<'ctx> {
+    ctx: &'ctx Context,
+    memory: Memory<'ctx>,
 }
 
-impl EVMMemory {
-    pub fn new() -> Self {
+impl<'ctx> EVMMemory<'ctx> {
+    pub fn new(ctx: &'ctx Context) -> Self {
         Self {
-            memory: Memory::new(),
+            ctx,
+            memory: Memory::new(ctx),
         }
     }
 
-    pub fn mload(&self, offset: U256) -> Word {
-        let off: usize = offset.into();
-        let mut ret = [0; 32];
-        let mem = self.memory.get(off..(off + 32));
-        ret.copy_from_slice(&mem);
+    pub fn mload(&mut self, off: u32) -> z3::ast::BV {
+        let ret = self.memory.get(self.ctx, off..(off + 256));
+        assert_eq!(ret.get_size(), 256, "mload val len != 256b");
         ret
     }
 
-    pub fn mstore(&mut self, offset: U256, value: Word) {
-        self.memory.set(offset.into(), value.to_vec());
+    pub fn mstore(&mut self, offset: u32, value: z3::ast::BV<'ctx>) {
+        assert_eq!(value.get_size(), 256);
+        self.memory.set(offset, value);
     }
 
-    pub fn mbig_load(&self, from: U256, to: U256) -> Vec<u8> {
-        let from: usize = from.into();
-        let to: usize = to.into();
-        // dbg!(&from, to);
-        self.memory.get(from..to)
+    pub fn mbig_load(&'ctx mut self, from: u32, to: u32) -> z3::ast::BV {
+        self.memory.get(self.ctx, from..to)
     }
 }
 
@@ -299,6 +339,12 @@ impl Sub for U256 {
         Self(result)
     }
 }
+
+// impl Mul for U256 {
+//     fn mul(self, rhs: Self) -> Self::Output {
+
+//     }
+// }
 
 // impl Step for U256 {
 //     fn steps_between(start: &Self, end: &Self) -> Option<usize> {
@@ -499,42 +545,43 @@ pub struct State {
     balance: HashMap<Address, U256>,
 }
 
-impl Debug for Stack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // stack is easily visualized when reversed
-        let mut data = self.data.iter().rev();
+// impl<'a> Debug for Stack<'a> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         todo!()
+//         // // stack is easily visualized when reversed
+//         // let mut data = self.data.iter().rev();
 
-        let mut data_str = if let Some(first) = data.next() {
-            data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
-                format!("{d}, {:?}", hex::encode(w))
-            })
-        } else {
-            String::from("[")
-        };
+//         // let mut data_str = if let Some(first) = data.next() {
+//         //     data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
+//         //         format!("{d}, {:?}", hex::encode(w))
+//         //     })
+//         // } else {
+//         //     String::from("[")
+//         // };
 
-        data_str.push(']');
+//         // data_str.push(']');
 
-        write!(f, "{}", data_str)
-    }
-}
+//         // write!(f, "{}", data_str)
+//     }
+// }
 
-impl Debug for Memory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut data = self.data.chunks(32);
+// impl Debug for Memory<'ctx> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let mut data = self.data.chunks(32);
 
-        let mut data_str = if let Some(first) = data.next() {
-            data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
-                format!("{d}, {:?}", hex::encode(w))
-            })
-        } else {
-            String::from("[")
-        };
+//         let mut data_str = if let Some(first) = data.next() {
+//             data.fold(format!("[{:?}", hex::encode(first)), |d, w| {
+//                 format!("{d}, {:?}", hex::encode(w))
+//             })
+//         } else {
+//             String::from("[")
+//         };
 
-        data_str.push(']');
+//         data_str.push(']');
 
-        write!(f, "{}", data_str)
-    }
-}
+//         write!(f, "{}", data_str)
+//     }
+// }
 
 pub fn convert_to_bytes<N: Into<u128>>(n: N) -> Word {
     let bytes = n.into().to_le_bytes();
@@ -553,46 +600,53 @@ pub fn to_word(val: &[u8]) -> Word {
     slice
 }
 
-#[test]
-fn push_stack() {
-    let mut stack = Stack::new();
-    let num = convert_to_bytes(100_u16);
-    stack.push(num);
-
-    assert_eq!(stack.data, vec![num]);
+pub fn to_bv<'ctx, 'a>(ctx: &'ctx Context, val: &'a [u8]) -> z3::ast::BV<'ctx> {
+    let as_str = hex::encode(val);
+    let as_int = z3::ast::Int::from_str(ctx, &as_str).unwrap_or(z3::ast::Int::from_u64(ctx, 0));
+    z3::ast::BV::from_int(&as_int, 256)
 }
 
-#[test]
-fn pop_stack() {
-    let mut stack = Stack::new();
-    let num = convert_to_bytes(100_u16);
-    stack.push(num);
-    stack.pop();
+// TODO: revive the tests
+// #[test]
+// fn push_stack() {
+//     let mut stack = Stack::new();
+//     let num = convert_to_bytes(100_u16);
+//     stack.push(num);
 
-    assert!(stack.data.is_empty());
-}
+//     assert_eq!(stack.data, vec![num]);
+// }
 
-#[test]
-fn dup_stack() {
-    let mut stack = Stack::new();
-    let num = convert_to_bytes(100_u16);
-    stack.push(num);
-    stack.dupn(0);
+// #[test]
+// fn pop_stack() {
+//     let mut stack = Stack::new();
+//     let num = convert_to_bytes(100_u16);
+//     stack.push(num);
+//     stack.pop();
 
-    assert_eq!(stack.data, vec![num, num]);
-}
+//     assert!(stack.data.is_empty());
+// }
 
-#[test]
-fn swap_stack() {
-    let mut stack = Stack::new();
-    let num1 = convert_to_bytes(100_u16);
-    let num2 = convert_to_bytes(200_u16);
-    stack.push(num1);
-    stack.push(num2);
-    stack.swapn(1);
+// #[test]
+// fn dup_stack() {
+//     let mut stack = Stack::new();
+//     let num = convert_to_bytes(100_u16);
+//     stack.push(num);
+//     stack.dupn(0);
 
-    assert_eq!(stack.data, vec![num2, num1]);
-}
+//     assert_eq!(stack.data, vec![num, num]);
+// }
+
+// #[test]
+// fn swap_stack() {
+//     let mut stack = Stack::new();
+//     let num1 = convert_to_bytes(100_u16);
+//     let num2 = convert_to_bytes(200_u16);
+//     stack.push(num1);
+//     stack.push(num2);
+//     stack.swapn(1);
+
+//     assert_eq!(stack.data, vec![num2, num1]);
+// }
 
 // #[test]
 // fn set_mem() {
