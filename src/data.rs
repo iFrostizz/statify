@@ -152,7 +152,7 @@ pub fn bool_to_bv<'ctx>(ctx: &'ctx Context, bool: &z3::ast::Bool<'ctx>) -> z3::a
 }
 
 impl<'ctx> Memory<'ctx> {
-    pub fn new(ctx: &'ctx Context) -> Self {
+    pub fn new() -> Self {
         Default::default()
     }
 
@@ -203,7 +203,7 @@ impl<'ctx> EVMMemory<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         Self {
             ctx,
-            memory: Memory::new(ctx),
+            memory: Memory::new(),
         }
     }
 
@@ -218,7 +218,7 @@ impl<'ctx> EVMMemory<'ctx> {
         self.memory.set(offset, value);
     }
 
-    pub fn mbig_load(&'ctx mut self, from: u32, to: u32) -> z3::ast::BV {
+    pub fn mbig_load(&mut self, from: u32, to: u32) -> z3::ast::BV<'ctx> {
         self.memory.get(self.ctx, from..to)
     }
 }
@@ -398,10 +398,11 @@ macro_rules! impl_num {
 
         // impl Into<$From> for U256 {
         //     fn into(self) -> $From {
-        //         if self > <$From>::max_value() {
+        //         let max_from = U256::from(<$From>::max_value());
+        //         if self > max_from {
         //             <$From>::max_value()
         //         } else {
-        //             let diff = self - U256::from(<$From>::max_value());
+        //             let diff = self - max_from;
         //             let mut out = <$From>::min_value().to_le_bytes();
         //             let val = &diff.0[0..(out.len())];
         //             out.copy_from_slice(val);
@@ -469,6 +470,22 @@ impl_num!(u32);
 impl_num!(u64);
 impl_num!(usize);
 impl_num!(u128);
+
+impl ToString for U256 {
+    fn to_string(&self) -> String {
+        // self.0
+        //     .into_iter()
+        //     .enumerate()
+        //     .fold(String::new(), |str, (i, b)| {
+
+        //     })
+
+        let mut s = [0; 16];
+        let part_slice = &self.0[16..];
+        s.copy_from_slice(part_slice);
+        u128::from_be_bytes(s).to_string()
+    }
+}
 
 #[test]
 fn add_u256() {
@@ -600,8 +617,24 @@ pub fn to_word(val: &[u8]) -> Word {
     slice
 }
 
-pub fn to_bv<'ctx, 'a>(ctx: &'ctx Context, val: &'a [u8]) -> z3::ast::BV<'ctx> {
-    let as_str = hex::encode(val);
+pub fn to_bv<'ctx>(ctx: &'ctx Context, val: &[u8]) -> z3::ast::BV<'ctx> {
+    println!("{:#?}", &val);
+    assert!(val.len() <= 32);
+    let mut result: [u8; 32] = [0; 32];
+    // extend bytes slice
+    result[(32 - val.len())..].copy_from_slice(val);
+
+    // zero out any untouched value
+    // result
+    //     .iter_mut()
+    //     .skip((32 - val.len()))
+    //     .take(32 - val.len())
+    //     .for_each(|x| *x = 0);
+
+    println!("{:?}", &result);
+    let num = U256::new(result);
+    let as_str = num.to_string();
+    dbg!(&as_str);
     let as_int = z3::ast::Int::from_str(ctx, &as_str).unwrap_or(z3::ast::Int::from_u64(ctx, 0));
     z3::ast::BV::from_int(&as_int, 256)
 }

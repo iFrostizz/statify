@@ -1,5 +1,3 @@
-use std::{borrow::BorrowMut, cell::RefCell};
-
 use crate::{
     bytecode::Mnemonics,
     data::{bool_to_bv, to_bv, EVMMemory, EVMStack, RevertReason},
@@ -39,14 +37,14 @@ impl<'ctx> Symbolic<'ctx> {
             calldata: z3::FuncDecl::new(
                 ctx,
                 "calldata",
-                &[&z3::Sort::bitvector(ctx, 32)],
-                &z3::Sort::bitvector(ctx, 32),
+                &[&z3::Sort::bitvector(ctx, 256)],
+                &z3::Sort::bitvector(ctx, 256),
             ),
             value: z3::FuncDecl::new(
                 ctx,
                 "value",
-                &[&z3::Sort::bitvector(ctx, 32)],
-                &z3::Sort::bitvector(ctx, 32),
+                &[&z3::Sort::bitvector(ctx, 256)],
+                &z3::Sort::bitvector(ctx, 256),
             ),
         }
     }
@@ -72,18 +70,19 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         let sol = Solver::new(self.ctx);
 
         let mut stack = EVMStack::new();
-        let memory = RefCell::new(EVMMemory::new(self.ctx));
+        let mut memory = EVMMemory::new(self.ctx);
         // let calldata = EVMCalldata::from(self.data.clone());
         // TODO: extract symbolic calldata from abi
         // let calldata: z3::ast::BV = z3::ast::BV::from_u64(self.ctx, 0, 32);
         let calldata: z3::ast::BV = z3::ast::BV::new_const(self.ctx, "calldata", 256);
+        // let calldata = self.sym.calldata.apply(args)
         let cds = calldata.get_size() as u64;
 
         // let max_cds = z3::ast::Int::from_u64(self.ctx, u64::max_value());
 
         // let steps = Vec::new();
 
-        for instruction in self.code {
+        for instruction in self.code.iter() {
             let op = instruction.op;
             let opcode = op.opcode();
             match opcode {
@@ -127,23 +126,35 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                     stack.pop()?;
                 }
                 Calldataload => {
-                    let val = if let Some(off) = stack.pop64()? {
-                        if off >= cds + 256 {
-                            z3::ast::BV::from_u64(self.ctx, 0, 256)
-                        } else if off >= cds {
-                            let cd = calldata
-                                .zero_ext((off + 256 - cds).try_into().unwrap())
-                                .clone();
-                            cd.extract((off + 255).try_into().unwrap(), off.try_into().unwrap())
-                        } else {
-                            calldata
-                                .extract((off + 255).try_into().unwrap(), off.try_into().unwrap())
-                        }
-                    } else {
-                        panic!("issue popping 64 bits val from stack for calldataload")
-                    };
+                    // let val = if let Some(off) = stack.pop64()? {
+                    //     if off >= cds + 256 {
+                    //         z3::ast::BV::from_u64(self.ctx, 0, 256)
+                    //     } else if off >= cds {
+                    //         let cd = calldata
+                    //             .zero_ext((off + 256 - cds).try_into().unwrap())
+                    //             .clone();
+                    //         cd.extract((off + 255).try_into().unwrap(), off.try_into().unwrap())
+                    //     } else {
+                    //         calldata
+                    //             .extract((off + 255).try_into().unwrap(), off.try_into().unwrap())
+                    //     }
+                    // } else {
+                    //     panic!("issue popping 64 bits val from stack for calldataload")
+                    // };
 
-                    stack.push(val)?;
+                    // stack.push(val)?;
+
+                    let off = stack.pop()?;
+                    dbg!(&off);
+                    let load = self
+                        .sym
+                        .calldata
+                        .apply(&[&off])
+                        .as_bv()
+                        .expect("couldn't convert calldata into a bitvector");
+                    dbg!(&load);
+
+                    stack.push(load)?;
                 }
                 Eq => {
                     let a = stack.pop()?;
@@ -161,22 +172,22 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                     // stack.push(mem)?;
                 }
                 Mstore => {
-                    // let off = stack.pop32()?.unwrap();
-                    // let val = stack.pop()?;
-                    // memory.mstore(off, val);
+                    let off = stack.pop32()?.unwrap();
+                    let val = stack.pop()?;
+                    memory.mstore(off, val);
                 }
                 Return => {
                     let off = stack.pop32()?.unwrap();
                     let len = stack.pop32()?.unwrap();
-                    let mem = memory.borrow();
-                    let ret = mem.mbig_load(off, off + len);
-                    self.ret.ret = Some(ret.clone());
+                    dbg!(off, len);
+                    let ret = memory.mbig_load(off, off + len);
+                    self.ret.ret = Some(ret);
                 }
                 op => todo!("{:?}", op),
             }
-            // dbg!(op);
-            // dbg!(&stack);
-            // dbg!(&memory);
+            dbg!(op);
+            dbg!(&stack);
+            dbg!(&memory);
         }
 
         match sol.check() {
