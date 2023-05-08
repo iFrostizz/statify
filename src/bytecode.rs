@@ -1,5 +1,6 @@
 // turns hex into mnemonics
 
+use crate::opcodes::OpCodes;
 use crate::{opcodes::OpCode, utils::get_slice};
 
 #[derive(Debug, Clone, Copy)]
@@ -8,6 +9,12 @@ pub struct Mnemonic<'a> {
     pub op: OpCode,
     // pub pushes: [u8; 32],
     pub pushes: &'a [u8],
+}
+
+impl<'a> Mnemonic<'a> {
+    pub fn opcode(&self) -> &OpCodes {
+        self.op.opcode()
+    }
 }
 
 pub type Mnemonics<'a> = Vec<Mnemonic<'a>>;

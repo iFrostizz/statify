@@ -8,12 +8,12 @@ use z3::{ast::Ast, Context};
 pub type Word = [u8; 32];
 
 // TODO: allow for symbolic stack elements
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Stack<'ctx> {
     data: Vec<z3::ast::BV<'ctx>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Memory<'ctx> {
     data: Option<z3::ast::BV<'ctx>>,
 }
@@ -77,7 +77,7 @@ impl<'ctx> Stack<'ctx> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EVMStack<'ctx> {
     stack: Stack<'ctx>,
 }
@@ -193,7 +193,7 @@ impl<'ctx> Memory<'ctx> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EVMMemory<'ctx> {
     ctx: &'ctx Context,
     memory: Memory<'ctx>,
@@ -473,17 +473,34 @@ impl_num!(u128);
 
 impl ToString for U256 {
     fn to_string(&self) -> String {
-        // self.0
-        //     .into_iter()
-        //     .enumerate()
-        //     .fold(String::new(), |str, (i, b)| {
+        let mut rems = Vec::new();
+        let mut bytes = self.0.to_vec();
 
-        //     })
+        while !bytes.is_empty() {
+            let mut rem = 0;
+            for b in bytes.iter_mut() {
+                let loaned = rem << 8u8 | *b as u16;
+                *b = (loaned / 10) as u8;
+                rem = loaned % 10;
+            }
+            rems.push(rem);
+            if bytes[0] == 0 {
+                bytes = bytes[1..].to_vec();
+            }
+        }
 
-        let mut s = [0; 16];
-        let part_slice = &self.0[16..];
-        s.copy_from_slice(part_slice);
-        u128::from_be_bytes(s).to_string()
+        let as_str: String = rems
+            .into_iter()
+            .rev()
+            .skip_while(|n| n == &0)
+            .map(|n| n.to_string())
+            .collect();
+
+        if as_str.is_empty() {
+            String::from("0")
+        } else {
+            as_str
+        }
     }
 }
 

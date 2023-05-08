@@ -13,6 +13,17 @@ pub fn get_selectors(mnemo: Mnemonics) -> Vec<u32> {
         .collect()
 }
 
+pub fn get_jumpdest(code: Mnemonics) -> Vec<u64> {
+    code.into_iter()
+        .filter(|mn| {
+            let op = OpCode::opcode(&mn.op);
+            op == &OpCodes::Jumpdest
+        })
+        .map(|mn| mn.pc as u64)
+        .collect()
+}
+
+use crate::opcodes::{OpCode, OpCodes};
 #[cfg(test)]
 use crate::{bytecode::to_mnemonics, utils::get_artifacts_code};
 
