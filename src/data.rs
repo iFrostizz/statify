@@ -180,11 +180,14 @@ impl<'ctx> Memory<'ctx> {
     /// Get a `BV` representing the data in memory in the range `r`.
     pub fn get(&mut self, ctx: &'ctx Context, r: Range<u32>) -> z3::ast::BV<'ctx> {
         let (low, high) = (r.start, r.end);
+        if low == high {
+            return z3::ast::BV::from_u64(ctx, 0, 1);
+        }
 
         let data = std::mem::replace(&mut self.data, None)
             .unwrap_or_else(|| z3::ast::BV::from_u64(ctx, 0, high));
 
-        if high > data.get_size() as u32 {
+        if high > data.get_size() {
             let extended_data = data.zero_ext(high - data.get_size());
             self.data.replace(extended_data);
         }
@@ -635,7 +638,7 @@ pub fn to_word(val: &[u8]) -> Word {
 }
 
 pub fn to_bv<'ctx>(ctx: &'ctx Context, val: &[u8]) -> z3::ast::BV<'ctx> {
-    println!("{:#?}", &val);
+    // println!("{:#?}", &val);
     assert!(val.len() <= 32);
     let mut result: [u8; 32] = [0; 32];
     // extend bytes slice
@@ -648,10 +651,10 @@ pub fn to_bv<'ctx>(ctx: &'ctx Context, val: &[u8]) -> z3::ast::BV<'ctx> {
     //     .take(32 - val.len())
     //     .for_each(|x| *x = 0);
 
-    println!("{:?}", &result);
+    // println!("{:?}", &result);
     let num = U256::new(result);
     let as_str = num.to_string();
-    dbg!(&as_str);
+    // dbg!(&as_str);
     let as_int = z3::ast::Int::from_str(ctx, &as_str).unwrap_or(z3::ast::Int::from_u64(ctx, 0));
     z3::ast::BV::from_int(&as_int, 256)
 }

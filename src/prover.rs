@@ -1,13 +1,13 @@
-use std::collections::BTreeMap;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use crate::{
     analysis::get_jumpdest,
     bytecode::{Mnemonic, Mnemonics},
     data::{bool_to_bv, to_bv, EVMMemory, EVMStack, RevertReason},
-    opcodes::OpCodes::{self, *},
+    opcodes::OpCodes::*,
 };
 use ethabi::Contract;
-use z3::{ast::Ast, Context, SatResult, Solver};
+use z3::{ast::Ast, Context, Solver};
 
 pub struct Prover<'a, 'ctx> {
     ctx: &'ctx Context,
@@ -21,7 +21,7 @@ pub struct Prover<'a, 'ctx> {
     last_id: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Ret<'ctx> {
     ret: Option<z3::ast::BV<'ctx>>,
 }
@@ -32,20 +32,11 @@ pub struct Symbolic<'ctx> {
 }
 
 impl<'ctx> Symbolic<'ctx> {
+    #[rustfmt::skip]
     pub fn new(ctx: &'ctx Context) -> Self {
         Self {
-            calldata: z3::FuncDecl::new(
-                ctx,
-                "calldata",
-                &[&z3::Sort::bitvector(ctx, 256)],
-                &z3::Sort::bitvector(ctx, 256),
-            ),
-            value: z3::FuncDecl::new(
-                ctx,
-                "value",
-                &[&z3::Sort::bitvector(ctx, 256)],
-                &z3::Sort::bitvector(ctx, 256),
-            ),
+            calldata: z3::FuncDecl::new(ctx, "calldata", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
+            value: z3::FuncDecl::new(ctx, "value", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
         }
     }
 }
@@ -55,6 +46,7 @@ impl<'ctx> Symbolic<'ctx> {
 pub struct Step<'a> {
     stack: EVMStack<'a>,
     memory: EVMMemory<'a>,
+    ret: Ret<'a>,
 }
 
 /// The full set of steps indexed by their branch id
@@ -80,7 +72,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
 
     /// run the solver constraining algo for the given evm mnemonics.
     /// throw with a "RevertReason" in the case of the main thread having an issue.
-    pub fn run(&mut self) -> Result<(&Solver, Tree, Ret), RevertReason> {
+    pub fn run(&'a mut self) -> Result<(&Solver, Tree, Ret), RevertReason> {
         let jdest = get_jumpdest(self.code.to_vec());
 
         let stack = EVMStack::new();
@@ -88,30 +80,47 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         // TODO: extract symbolic calldata from abi
 
         let (tree, sol) = self.walk();
-        dbg!(&tree);
 
         // output the final solver with constraints
-        Ok((sol, Default::default(), Default::default()))
+        Ok((sol, tree, Default::default()))
     }
 
     /// entry point of branching, is the main branch with id 0
-    pub fn walk(&mut self) -> (Tree, &Solver) {
+    pub fn walk(&'a mut self) -> (Tree, &Solver) {
         let jdest = get_jumpdest(self.code.to_vec());
 
         // main thread
         let stack = EVMStack::new();
         let memory = EVMMemory::new(self.ctx);
-        let last_step = Step { stack, memory };
-        // TODO: handle main thread stack underflow
-        self.path(&mut 0, &mut Default::default(), last_step, 0)
+        let last_step = Step {
+            stack,
+            memory,
+            ret: Default::default(),
+        };
+        let mut id = 0;
+
+        // TODO: handle main thread **only** stack underflow
+        Self::path(
+            self.ctx,
+            &self.sol,
+            &self.sym.calldata,
+            self.code,
+            id,
+            Default::default(),
+            last_step,
+            0,
+        )
     }
 
     pub fn step(
-        &mut self,
-        last_step: Step<'ctx>,
+        ctx: &'a Context,
+        sol: &'a Solver,
+        calldata: &'a z3::FuncDecl<'ctx>,
+        last_step: Step<'a>,
         instruction: Mnemonic,
-    ) -> Result<Step, RevertReason> {
+    ) -> Result<Step<'a>, RevertReason> {
         let mut step = last_step;
+        // dbg!(&step);
 
         let op = instruction.op;
         let opcode = op.opcode();
@@ -119,22 +128,21 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             Stop => {
                 // no output for this step
             }
-            Revert => {
-                todo!()
-                // let loc = stack.pop()?;
-                // let len = stack.pop()?;
-            }
+            // Revert => {
+            //     let loc = stack.pop()?;
+            //     let len = stack.pop()?;
+            // }
             Lt => {
                 let a = step.stack.pop()?;
                 let b = step.stack.pop()?;
-                self.sol.assert(&a.bvult(&b));
-                self.sol.push();
+                sol.assert(&a.bvult(&b));
+                sol.push();
             }
             Gt => {
                 let a = step.stack.pop()?;
                 let b = step.stack.pop()?;
-                self.sol.assert(&a.bvugt(&b));
-                self.sol.push();
+                sol.assert(&a.bvugt(&b));
+                sol.push();
             }
             Add => {
                 todo!()
@@ -145,7 +153,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             | Push10 | Push11 | Push12 | Push13 | Push14 | Push15 | Push16 | Push17 | Push18
             | Push19 | Push20 | Push21 | Push22 | Push23 | Push24 | Push25 | Push26 | Push27
             | Push28 | Push29 | Push30 | Push31 | Push32 => {
-                step.stack.push(to_bv(self.ctx, instruction.pushes))?;
+                step.stack.push(to_bv(ctx, instruction.pushes))?;
             }
             Dup1 | Dup2 | Dup3 | Dup4 | Dup5 | Dup6 | Dup7 | Dup8 | Dup9 | Dup10 | Dup11
             | Dup12 | Dup13 | Dup14 | Dup15 | Dup16 => {
@@ -157,9 +165,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             }
             Calldataload => {
                 let off = step.stack.pop()?;
-                let load = self
-                    .sym
-                    .calldata
+                let load = calldata
                     .apply(&[&off])
                     .as_bv()
                     .expect("couldn't convert calldata into a bitvector")
@@ -172,9 +178,9 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let b = step.stack.pop()?;
 
                 let eq = &a._eq(&b).simplify();
-                self.sol.assert(eq);
+                sol.assert(eq);
 
-                step.stack.push(bool_to_bv(self.ctx, eq))?;
+                step.stack.push(bool_to_bv(ctx, eq))?;
             }
             Mload => {
                 todo!()
@@ -187,11 +193,12 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let val = step.stack.pop()?;
                 step.memory.mstore(off, val);
             }
-            Return => {
+            Return | Revert => {
                 let off = step.stack.pop32()?.unwrap();
                 let len = step.stack.pop32()?.unwrap();
                 let ret = step.memory.mbig_load(off, off + len);
-                self.ret.ret = Some(ret);
+                dbg!(&ret);
+                step.ret.ret = Some(ret);
             }
             // Jump => {
             //     let to = stack.pop()?.to_int(false);
@@ -222,36 +229,57 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
 
     /// iterate on a portion of the bytecode, branch when needed
     pub fn path(
-        &mut self,
-        pid: &mut usize,
-        tree: &mut Tree,
-        step: Step,
+        ctx: &'ctx Context,
+        mut sol: &'a Solver<'ctx>,
+        calldata: &'a z3::FuncDecl<'ctx>,
+        code: &Mnemonics<'a>,
+        pid: usize,
+        tree: Rc<RefCell<Tree<'a>>>,
+        mut step: Step<'a>,
         inst_id: usize,
-    ) -> (Tree, &Solver) {
-        let id = self.last_id;
-
+    ) -> (Tree<'a>, &'a Solver<'ctx>) {
         // start the execution from the id
-        for (i, instruction) in self.code.iter().enumerate().skip(inst_id) {
+        for (i, instruction) in code.iter().enumerate().skip(inst_id) {
             let opcode = instruction.opcode();
 
+            // branching for variable JUMP destination
             if opcode == &Jump || opcode == &Jumpi {
                 // create a new path by following the potential jump destinations
+                // create a right branch
                 // TODO: handle while dropping this path if any stack out of bounds or invalid instruction
-                *pid += 1;
-                // self.path(pid, tree, step, i);
+                // TODO: check for already visited jump dest, don't visit them twice
+                let _t;
+                (_t, sol) = Self::path(
+                    ctx,
+                    sol,
+                    calldata,
+                    code,
+                    pid + 1,
+                    tree.clone(),
+                    step.clone(),
+                    i + 1,
+                );
             }
 
-            // let step = self.step(step, *instruction).unwrap();
-            // let mut val = tree
-            //     .get_mut(&self.last_id)
-            //     .get_or_insert(&mut Default::default());
-            // val.push(step);
+            // also keep up with the left branch
+            step = Self::step(ctx, sol, calldata, step.clone(), *instruction).unwrap();
+            let tr = tree.clone();
+            let mut t = tr.borrow_mut();
+            let val = t.get_mut(&pid);
+            if let Some(steps) = val {
+                steps.push(step.clone());
+            } else {
+                t.insert(pid, vec![step.clone()]);
+            };
         }
 
-        self.last_id += 1;
+        // self.last_id += 1;
 
         // tree
-        (Default::default(), &self.sol)
+        // (Default::default(), &self.sol)
+        let tree = tree.clone();
+        let tree = tree.borrow();
+        (tree.to_owned(), sol)
     }
 }
 
@@ -259,10 +287,10 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
 mod tests {
     use super::*;
     use crate::to_mnemonics;
-    use z3::Config;
+    use z3::{Config, SatResult};
 
     #[test]
-    fn prover_lt() {
+    fn lt() {
         let cfg = Config::default();
         let hex = hex::decode("5F60011000").unwrap();
         // let hex = hex::decode("60015F1000").unwrap();
@@ -318,8 +346,9 @@ mod tests {
         let code = to_mnemonics(&hex);
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, vec![], Contract::default());
-        let (sol, _, ret) = prover.run().unwrap();
+        let (sol, tree, ret) = prover.run().unwrap();
         assert_eq!(sol.check(), SatResult::Sat);
+        assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
         dbg!(&model);
