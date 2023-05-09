@@ -162,6 +162,17 @@ pub fn bool_to_bv<'ctx>(ctx: &'ctx Context, bool: &z3::ast::Bool<'ctx>) -> z3::a
     bool.ite(&one, &zero)
 }
 
+pub fn is_zero<'ctx>(ctx: &'ctx Context, bv: &z3::ast::BV) -> z3::ast::BV<'ctx> {
+    let zero = z3::ast::BV::from_u64(ctx, 0, 256);
+    let one = z3::ast::BV::from_u64(ctx, 1, 256);
+
+    if bv.eq(&zero) {
+        one
+    } else {
+        zero
+    }
+}
+
 impl<'ctx> Memory<'ctx> {
     pub fn new() -> Self {
         Default::default()

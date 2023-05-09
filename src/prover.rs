@@ -1,9 +1,9 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, ops::BitAnd, rc::Rc};
 
 use crate::{
     analysis::get_jumpdest,
     bytecode::{Mnemonic, Mnemonics},
-    data::{bool_to_bv, to_bv, EVMMemory, EVMStack, RevertReason},
+    data::{bool_to_bv, is_zero, to_bv, EVMMemory, EVMStack, RevertReason},
     opcodes::OpCodes::*,
 };
 use ethabi::Contract;
@@ -138,17 +138,140 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let b = step.stack.pop()?;
                 step.stack.push(a.bvadd(&b))?;
             }
+            Mul => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvmul(&b))?;
+            }
+            Sub => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvsub(&b))?;
+            }
+            Div => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvudiv(&b))?;
+            }
+            Sdiv => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvsdiv(&b))?;
+            }
+            Mod => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvurem(&b))?;
+            }
+            Smod => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvsmod(&b))?;
+            }
+            Addmod => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                let n = step.stack.pop()?;
+                step.stack.push(a.bvadd(&b).bvurem(&n))?;
+            }
+            Mulmod => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                let n = step.stack.pop()?;
+                step.stack.push(a.bvmul(&b).bvurem(&n))?;
+            }
+            Exp => {
+                todo!();
+            }
+            Signextend => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop32()?.unwrap();
+                step.stack.push(a.sign_ext(b))?;
+            }
             Lt => {
                 let a = step.stack.pop()?;
                 let b = step.stack.pop()?;
                 sol.assert(&a.bvult(&b));
-                sol.push();
             }
             Gt => {
                 let a = step.stack.pop()?;
                 let b = step.stack.pop()?;
                 sol.assert(&a.bvugt(&b));
-                sol.push();
+            }
+            Slt => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                sol.assert(&a.bvslt(&b));
+            }
+            Sgt => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                sol.assert(&a.bvsgt(&b));
+            }
+            Eq => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                let eq = &a._eq(&b).simplify();
+                sol.assert(eq);
+                step.stack.push(bool_to_bv(ctx, eq))?;
+            }
+            Iszero => {
+                let a = step.stack.pop()?;
+                step.stack.push(is_zero(ctx, &a))?;
+            }
+            And => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvand(&b))?;
+            }
+            Or => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvor(&b))?;
+            }
+            Xor => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvxor(&b))?;
+            }
+            Not => {
+                let a = step.stack.pop()?;
+                step.stack.push(a.bvnot())?;
+            }
+            Byte => {
+                let i = step.stack.pop()?;
+                let res = if let Some(x) = step.stack.pop32()? {
+                    if x < u32::max_value() - 32 {
+                        i.extract(x + 255, x)
+                    } else {
+                        z3::ast::BV::from_u64(ctx, 0, 256)
+                    }
+                } else {
+                    z3::ast::BV::from_u64(ctx, 0, 256)
+                };
+
+                step.stack.push(res)?;
+            }
+            Shl => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvshl(&b))?;
+            }
+            Shr => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvlshr(&b))?;
+            }
+            Sar => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvashr(&b))?;
+            }
+            Sha3 => {
+                todo!()
+            }
+            Address => {
+                todo!()
             }
             Push0 | Push1 | Push2 | Push3 | Push4 | Push5 | Push6 | Push7 | Push8 | Push9
             | Push10 | Push11 | Push12 | Push13 | Push14 | Push15 | Push16 | Push17 | Push18
@@ -174,15 +297,6 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
 
                 step.stack.push(load)?;
             }
-            Eq => {
-                let a = step.stack.pop()?;
-                let b = step.stack.pop()?;
-
-                let eq = &a._eq(&b).simplify();
-                sol.assert(eq);
-
-                step.stack.push(bool_to_bv(ctx, eq))?;
-            }
             Mload => {
                 todo!()
                 // let off = stack.pop()?;
@@ -201,21 +315,6 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 step = Self::ret(step)?;
                 step.ret.rev = true;
             }
-            // Jump => {
-            //     let to = stack.pop()?.to_int(false);
-            //     for dest in &jdest {
-            //         self.sol.push();
-            //         let dest = z3::ast::Int::from_u64(self.ctx, *dest);
-            //         self.sol.assert(&dest._eq(&to).simplify());
-            //         if self.sol.check() == SatResult::Sat {
-            //             // create branch
-            //             dbg!("sat!");
-            //         } else {
-            //             dbg!("unsat!", dest);
-            //         }
-            //         self.sol.pop(1);
-            //     }
-            // }
             Invalid => {
                 step.ret.rev = true;
             }
@@ -256,7 +355,6 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         mut step: Step<'a>,
         pc: usize,
     ) -> Result<(Tree<'a>, &'a Solver<'ctx>, usize), RevertReason> {
-        dbg!(&vdest);
         let last_pid = pid;
 
         // start the execution from the id
