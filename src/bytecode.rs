@@ -1,5 +1,7 @@
 // turns hex into mnemonics
 
+use std::fmt::Display;
+
 use crate::opcodes::OpCodes;
 use crate::{opcodes::OpCode, utils::get_slice};
 
@@ -17,6 +19,12 @@ impl<'a> Mnemonic<'a> {
     }
 }
 
+impl Display for Mnemonic<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {:?}", self, self.opcode())
+    }
+}
+
 pub type Mnemonics<'a> = Vec<Mnemonic<'a>>;
 
 pub fn to_mnemonics(bytecode: &[u8]) -> Mnemonics {
@@ -25,25 +33,25 @@ pub fn to_mnemonics(bytecode: &[u8]) -> Mnemonics {
     while let Some(b) = bytecode.get(pc) {
         let op = OpCode::from_u8(*b);
 
-        let pushes = if let Some(push_size) = op.push_size() {
+        let (_pc, pushes) = if let Some(push_size) = op.push_size() {
             // write in buffer an skip until stop
 
             let range = (pc + 1)..(pc + 1 + push_size as usize);
 
-            pc += push_size as usize;
+            let mut _pc = pc + push_size as usize;
 
             let new_slice = get_slice(bytecode, range);
-            new_slice
+            (_pc, new_slice)
         } else {
             // non-push opcode
 
             // zero
-            &[]
+            (pc, &[][..])
         };
 
         code.push(Mnemonic { pc, op, pushes });
 
-        pc += 1;
+        pc = _pc + 1;
     }
 
     code

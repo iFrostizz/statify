@@ -7,23 +7,28 @@ use crate::{
     opcodes::OpCodes::*,
 };
 use ethabi::Contract;
-use z3::{ast::Ast, Context, Solver};
+use z3::{ast::Ast, Context, SatResult, Solver};
 
 pub struct Prover<'a, 'ctx> {
     ctx: &'ctx Context,
     sol: Solver<'ctx>,
     code: &'a Mnemonics<'a>,
-    data: Vec<u8>, // TODO: switch to symbolic only
     abi: Contract,
     sym: Symbolic<'ctx>,
-    ret: Ret<'ctx>,
-    /// last assigned path id
-    last_id: usize,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct Ret<'ctx> {
-    ret: Option<z3::ast::BV<'ctx>>,
+    val: Option<z3::ast::BV<'ctx>>,
+    ret: bool,
+    /// wether it reverted or not
+    rev: bool,
+}
+
+impl Ret<'_> {
+    pub fn has_ret(&self) -> bool {
+        return self.ret || self.rev;
+    }
 }
 
 pub struct Symbolic<'ctx> {
@@ -44,6 +49,7 @@ impl<'ctx> Symbolic<'ctx> {
 /// Prover step for each bytecode instruction
 #[derive(Debug, Clone)]
 pub struct Step<'a> {
+    op: Mnemonic<'a>,
     stack: EVMStack<'a>,
     memory: EVMMemory<'a>,
     ret: Ret<'a>,
@@ -53,60 +59,58 @@ pub struct Step<'a> {
 pub type Tree<'a> = BTreeMap<usize, Vec<Step<'a>>>;
 
 impl<'a, 'ctx> Prover<'a, 'ctx> {
-    pub fn new(ctx: &'ctx Context, code: &'a Mnemonics, data: Vec<u8>, abi: Contract) -> Self {
+    pub fn new(ctx: &'ctx Context, code: &'a Mnemonics, abi: Contract) -> Self {
         let sym = Symbolic::new(ctx);
         let sol = Solver::new(ctx);
-        let ret = Default::default();
 
         Self {
             ctx,
             sol,
             code,
-            data,
             abi,
             sym,
-            ret,
-            last_id: 0,
         }
     }
 
     /// run the solver constraining algo for the given evm mnemonics.
     /// throw with a "RevertReason" in the case of the main thread having an issue.
-    pub fn run(&'a mut self) -> Result<(&Solver, Tree, Ret), RevertReason> {
+    pub fn run(&'a mut self) -> Result<(&Solver, Tree), RevertReason> {
         let jdest = get_jumpdest(self.code.to_vec());
 
         let stack = EVMStack::new();
         let memory = EVMMemory::new(self.ctx);
         // TODO: extract symbolic calldata from abi
 
-        let (tree, sol) = self.walk();
+        let (tree, sol, _p) = self.walk()?;
 
         // output the final solver with constraints
-        Ok((sol, tree, Default::default()))
+        Ok((sol, tree))
     }
 
     /// entry point of branching, is the main branch with id 0
-    pub fn walk(&'a mut self) -> (Tree, &Solver) {
+    pub fn walk(&'a mut self) -> Result<(Tree, &Solver, usize), RevertReason> {
         let jdest = get_jumpdest(self.code.to_vec());
 
         // main thread
         let stack = EVMStack::new();
         let memory = EVMMemory::new(self.ctx);
         let last_step = Step {
+            op: *self.code.first().unwrap(),
             stack,
             memory,
             ret: Default::default(),
         };
-        let mut id = 0;
 
         // TODO: handle main thread **only** stack underflow
         Self::path(
             self.ctx,
+            &jdest,
             &self.sol,
             &self.sym.calldata,
             self.code,
-            id,
+            0,
             Default::default(),
+            &mut Default::default(),
             last_step,
             0,
         )
@@ -117,9 +121,10 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         sol: &'a Solver,
         calldata: &'a z3::FuncDecl<'ctx>,
         last_step: Step<'a>,
-        instruction: Mnemonic,
+        instruction: Mnemonic<'a>,
     ) -> Result<Step<'a>, RevertReason> {
         let mut step = last_step;
+        step.op = instruction;
         // dbg!(&step);
 
         let op = instruction.op;
@@ -193,12 +198,12 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let val = step.stack.pop()?;
                 step.memory.mstore(off, val);
             }
-            Return | Revert => {
-                let off = step.stack.pop32()?.unwrap();
-                let len = step.stack.pop32()?.unwrap();
-                let ret = step.memory.mbig_load(off, off + len);
-                dbg!(&ret);
-                step.ret.ret = Some(ret);
+            Return => {
+                step = Self::ret(step)?;
+            }
+            Revert => {
+                step = Self::ret(step)?;
+                step.ret.rev = true;
             }
             // Jump => {
             //     let to = stack.pop()?.to_int(false);
@@ -216,10 +221,17 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             //     }
             // }
             Invalid => {
-                // revert with (0, 0)
+                step.ret.rev = true;
             }
-            Jumpdest | Jump | Jumpi => {
+            Jumpdest => {
                 // nothing, handled by branching
+            }
+            Jump => {
+                step.stack.pop()?;
+            }
+            Jumpi => {
+                step.stack.pop()?;
+                step.stack.pop()?;
             }
             op => todo!("{:?}", op),
         }
@@ -227,50 +239,116 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         Ok(step)
     }
 
+    fn ret(mut step: Step<'a>) -> Result<Step<'a>, RevertReason> {
+        let off = step.stack.pop32()?.unwrap();
+        let len = step.stack.pop32()?.unwrap();
+        let ret = step.memory.mbig_load(off, off + len);
+        step.ret.val = Some(ret);
+        Ok(step)
+    }
+
     /// iterate on a portion of the bytecode, branch when needed
     pub fn path(
         ctx: &'ctx Context,
-        mut sol: &'a Solver<'ctx>,
+        jdest: &Vec<u64>,
+        sol: &'a Solver<'ctx>,
         calldata: &'a z3::FuncDecl<'ctx>,
         code: &Mnemonics<'a>,
-        pid: usize,
+        mut pid: usize,
         tree: Rc<RefCell<Tree<'a>>>,
+        vdest: &mut Vec<u64>,
         mut step: Step<'a>,
-        inst_id: usize,
-    ) -> (Tree<'a>, &'a Solver<'ctx>) {
+        pc: usize,
+    ) -> Result<(Tree<'a>, &'a Solver<'ctx>, usize), RevertReason> {
+        dbg!(&vdest);
+        let last_pid = pid;
+
         // start the execution from the id
-        for (i, instruction) in code.iter().enumerate().skip(inst_id) {
+        for (i, instruction) in code.iter().enumerate().skip_while(|(_, ins)| ins.pc < pc) {
             let opcode = instruction.opcode();
 
-            // branching for variable JUMP destination
             if opcode == &Jump || opcode == &Jumpi {
-                // create a new path by following the potential jump destinations
-                // create a right branch
-                // TODO: handle while dropping this path if any stack out of bounds or invalid instruction
-                // TODO: check for already visited jump dest, don't visit them twice
-                let _t;
-                (_t, sol) = Self::path(
-                    ctx,
-                    sol,
-                    calldata,
-                    code,
-                    pid + 1,
-                    tree.clone(),
-                    step.clone(),
-                    i + 1,
-                );
+                // find potential jump dests
+                let dest = if opcode == &Jump {
+                    step.stack.peek(0)
+                } else {
+                    step.stack.peek(1)
+                }?;
+
+                // if symbolic dest, find for all valable destinations
+                if !dest.is_const() {
+                    for jd in jdest {
+                        let dest_int = z3::ast::Int::from_u64(ctx, *jd);
+                        sol.push();
+                        sol.assert(&dest_int._eq(&dest.to_int(false)).simplify());
+                        // check if dest is reachable
+                        if sol.check() == SatResult::Sat && !vdest.contains(jd) {
+                            vdest.push(*jd);
+
+                            if let Ok((t, s, p)) = Self::path(
+                                ctx,
+                                jdest,
+                                sol,
+                                calldata,
+                                code,
+                                pid + 1,
+                                tree.clone(),
+                                vdest,
+                                step.clone(),
+                                *jd as usize,
+                            ) {
+                                pid = p;
+                            }
+                        }
+                        sol.pop(1);
+                    }
+                } else if let Some(d) = dest.as_u64() {
+                    if !vdest.contains(&d) {
+                        vdest.push(d);
+
+                        if jdest.contains(&d) {
+                            sol.push();
+                            if let Ok((t, s, p)) = Self::path(
+                                ctx,
+                                jdest,
+                                sol,
+                                calldata,
+                                code,
+                                pid + 1,
+                                tree.clone(),
+                                vdest,
+                                step.clone(),
+                                d as usize,
+                            ) {
+                                pid = p;
+                            };
+
+                            sol.pop(1);
+                        }
+                    } else {
+                        // already visited
+                    }
+                } else {
+                    step = Self::ret(step)?;
+                    step.ret.rev = true;
+                }
             }
 
             // also keep up with the left branch
             step = Self::step(ctx, sol, calldata, step.clone(), *instruction).unwrap();
             let tr = tree.clone();
             let mut t = tr.borrow_mut();
-            let val = t.get_mut(&pid);
+            let val = t.get_mut(&last_pid);
             if let Some(steps) = val {
                 steps.push(step.clone());
             } else {
-                t.insert(pid, vec![step.clone()]);
+                t.insert(last_pid, vec![step.clone()]);
             };
+
+            if step.ret.has_ret() {
+                // main thread has returned, get out
+                break;
+            }
         }
 
         // self.last_id += 1;
@@ -279,7 +357,8 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         // (Default::default(), &self.sol)
         let tree = tree.clone();
         let tree = tree.borrow();
-        (tree.to_owned(), sol)
+
+        Ok((tree.to_owned(), sol, pid + 1))
     }
 }
 
@@ -296,7 +375,7 @@ mod tests {
         // let hex = hex::decode("60015F1000").unwrap();
         let code = to_mnemonics(&hex);
         let ctx = Context::new(&cfg);
-        let mut prover = Prover::new(&ctx, &code, vec![], Contract::default());
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
         let (sol, ..) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
@@ -309,8 +388,8 @@ mod tests {
         let hex = hex::decode("5F5FFD").unwrap();
         let code = to_mnemonics(&hex);
         let ctx = Context::new(&cfg);
-        let mut prover = Prover::new(&ctx, &code, vec![], Contract::default());
-        let (sol, ..) = prover.run().unwrap();
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, _) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
         dbg!(&model);
@@ -321,21 +400,12 @@ mod tests {
         let cfg = Config::default();
         let hex = hex::decode("5F35611337145F5260205FF3").unwrap();
         let code = to_mnemonics(&hex);
-        // let mut data = [0u8; 32];
-        // data[30..].copy_from_slice(&hex::decode("1337").unwrap());
         let ctx = Context::new(&cfg);
-        let mut prover = Prover::new(
-            &ctx,
-            &code,
-            // data.to_vec(),
-            vec![],
-            Contract::default(),
-        );
-        let (sol, _, ret) = prover.run().unwrap();
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, _) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
         dbg!(&model);
-        dbg!(&ret);
     }
 
     #[test]
@@ -345,13 +415,60 @@ mod tests {
         let hex = hex::decode("5F3556FE5B60015B").unwrap();
         let code = to_mnemonics(&hex);
         let ctx = Context::new(&cfg);
-        let mut prover = Prover::new(&ctx, &code, vec![], Contract::default());
-        let (sol, tree, ret) = prover.run().unwrap();
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, tree) = prover.run().unwrap();
+        assert_eq!(sol.check(), SatResult::Sat);
+        assert_eq!(tree.keys().len(), 3);
+        let model = sol.get_model();
+        dbg!(&sol);
+        dbg!(&model);
+    }
+
+    #[test]
+    fn jumpi() {
+        // https://www.evm.codes/playground?unit=Wei&codeType=Mnemonic&code=%27qFirstk%20noYjump%2C%20secondkw0%20XRY0w10z2~h4~W_z5w12z7~h9~Z0gINVALIDK11gZ2w_z13%27~%20%7Bprevious%20instruction%20occupiR%202%20bytR%7DgzXseYwgWq%2F%2F%20k%20example%20doRhQI%20%20Kg%5Cn_1%20ZQDESTz1Yt%20X%20qOffWPUSH_ResQJUMPK%20z%01KQRWXYZ_ghkqwz~_
+        let cfg = Config::default();
+        let hex = hex::decode("6000600a576001600C575BFE5B6001").unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, tree) = prover.run().unwrap();
+        println!("{:#?}", &tree);
+        assert_eq!(sol.check(), SatResult::Sat);
+        assert_eq!(tree.keys().len(), 3);
+        let model = sol.get_model();
+        dbg!(&sol);
+        dbg!(&model);
+    }
+
+    #[test]
+    fn infinite() {
+        let cfg = Config::default();
+        let hex = hex::decode("5B5F56FE").unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, tree) = prover.run().unwrap();
         assert_eq!(sol.check(), SatResult::Sat);
         assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
         dbg!(&model);
-        dbg!(&ret);
+    }
+
+    #[test]
+    fn dyn_jump() {
+        let cfg = Config::default();
+        let hex = hex::decode("5F35600656FE5B00").unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, tree) = prover.run().unwrap();
+        dbg!(&tree);
+        assert_eq!(sol.check(), SatResult::Sat);
+        assert_eq!(tree.keys().len(), 2);
+        let model = sol.get_model();
+        dbg!(&sol);
+        dbg!(&model);
     }
 }

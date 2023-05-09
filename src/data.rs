@@ -65,6 +65,13 @@ impl<'ctx> Stack<'ctx> {
         self.push(word.clone())
     }
 
+    pub fn get(&self, n: usize) -> Result<z3::ast::BV<'ctx>, RevertReason> {
+        self.data
+            .get(n)
+            .ok_or(RevertReason::StackUnderflow)
+            .cloned()
+    }
+
     /// swap the first word with the one at index n on the stack. Returns false if n is out of stack
     pub fn swapn(&mut self, n: usize) -> Result<(), RevertReason> {
         match self.data.get(n) {
@@ -98,6 +105,10 @@ impl<'ctx> EVMStack<'ctx> {
     /// pop the front element of the stack and return it
     pub fn pop(&mut self) -> Result<z3::ast::BV<'ctx>, RevertReason> {
         self.stack.pop()
+    }
+
+    pub fn peek(&self, n: usize) -> Result<z3::ast::BV<'ctx>, RevertReason> {
+        self.stack.get(n)
     }
 
     pub fn pop64(&mut self) -> Result<Option<u64>, RevertReason> {
