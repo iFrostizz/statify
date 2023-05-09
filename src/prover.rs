@@ -133,10 +133,11 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             Stop => {
                 // no output for this step
             }
-            // Revert => {
-            //     let loc = stack.pop()?;
-            //     let len = stack.pop()?;
-            // }
+            Add => {
+                let a = step.stack.pop()?;
+                let b = step.stack.pop()?;
+                step.stack.push(a.bvadd(&b))?;
+            }
             Lt => {
                 let a = step.stack.pop()?;
                 let b = step.stack.pop()?;
@@ -148,11 +149,6 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let b = step.stack.pop()?;
                 sol.assert(&a.bvugt(&b));
                 sol.push();
-            }
-            Add => {
-                todo!()
-                // let a = stack.pop()?;
-                // let b = stack.pop()?;
             }
             Push0 | Push1 | Push2 | Push3 | Push4 | Push5 | Push6 | Push7 | Push8 | Push9
             | Push10 | Push11 | Push12 | Push13 | Push14 | Push15 | Push16 | Push17 | Push18
@@ -335,7 +331,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             }
 
             // also keep up with the left branch
-            step = Self::step(ctx, sol, calldata, step.clone(), *instruction).unwrap();
+            step = Self::step(ctx, sol, calldata, step.clone(), *instruction)?;
             let tr = tree.clone();
             let mut t = tr.borrow_mut();
             let val = t.get_mut(&last_pid);
@@ -351,10 +347,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             }
         }
 
-        // self.last_id += 1;
-
         // tree
-        // (Default::default(), &self.sol)
         let tree = tree.clone();
         let tree = tree.borrow();
 
@@ -470,5 +463,23 @@ mod tests {
         let model = sol.get_model();
         dbg!(&sol);
         dbg!(&model);
+    }
+
+    /// only the main thread make the proving revert, not branches
+    #[test]
+    fn main_reverts() {
+        let cfg = Config::default();
+        let hex = hex::decode("5F5050").unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        assert!(prover.run().is_err());
+
+        let cfg = Config::default();
+        let hex = hex::decode("600160065F5B50").unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        assert!(prover.run().is_ok());
     }
 }
