@@ -5,7 +5,7 @@ use crate::{
     opcodes::OpCodes::*,
 };
 use ethabi::Contract;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, ops::Not, rc::Rc};
 use z3::{ast::Ast, Context, SatResult, Solver};
 
 pub struct Prover<'a, 'ctx> {
@@ -47,8 +47,7 @@ impl<'ctx> Symbolic<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         Self {
             calldata: z3::FuncDecl::new(ctx, "calldata", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
-            // value: z3::FuncDecl::new(ctx, "value", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
-            value: z3::FuncDecl::new(ctx, "value", &[], &z3::Sort::bitvector(ctx, 256)),
+            value: z3::FuncDecl::new(ctx, "value", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
             caller: z3::FuncDecl::new(ctx, "caller", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
             origin: z3::FuncDecl::new(ctx, "origin", &[], &z3::Sort::bitvector(ctx, 256)),
             address: z3::FuncDecl::new(ctx, "address", &[], &z3::Sort::bitvector(ctx, 256)),
@@ -298,7 +297,12 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 step.stack.push(sym.caller.apply(&[]).as_bv().unwrap())?;
             }
             Callvalue => {
-                step.stack.push(sym.value.apply(&[]).as_bv().unwrap())?;
+                step.stack.push(
+                    sym.value
+                        .apply(&[&z3::ast::BV::from_u64(ctx, 0, 256)])
+                        .as_bv()
+                        .unwrap(),
+                )?;
             }
             Calldataload => {
                 let off = step.stack.pop()?;
@@ -402,7 +406,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             op => todo!("{:?}", op),
         }
 
-        dbg!(&step);
+        // dbg!(&step);
 
         Ok(step)
     }
@@ -469,68 +473,90 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
 
             if opcode == &Jump || opcode == &Jumpi {
                 // find potential jump dests
-                let dest = if opcode == &Jump {
-                    step.stack.peek(0)
+                let dest = step.stack.peek(0)?;
+
+                // dbg!(&dest);
+                // dbg!(&dest.is_app());
+                // dbg!(&dest.is_const());
+
+                let cond = if opcode == &Jumpi {
+                    step.stack.peek(1)?
                 } else {
-                    step.stack.peek(1)
-                }?;
+                    z3::ast::BV::from_u64(ctx, 1, 256)
+                };
 
-                // if symbolic dest, find for all valable destinations
-                if !dest.is_const() {
-                    for jd in jdest {
-                        let dest_int = z3::ast::Int::from_u64(ctx, *jd);
-                        sol.push();
-                        sol.assert(&dest_int._eq(&dest.to_int(false)).simplify());
-                        // check if dest is reachable
-                        if sol.check() == SatResult::Sat && !vdest.contains(jd) {
-                            vdest.push(*jd);
+                // dbg!(&cond);
 
-                            if let Ok((t, s, p)) = Self::path(
-                                ctx,
-                                jdest,
-                                sol,
-                                sym,
-                                code,
-                                pid + 1,
-                                tree.clone(),
-                                vdest,
-                                step.clone(),
-                                *jd as usize,
-                            ) {
-                                pid = p;
-                            }
-                        }
-                        sol.pop(1);
-                    }
-                } else if let Some(d) = dest.as_u64() {
-                    if !vdest.contains(&d) {
-                        vdest.push(d);
+                let is_reachable = cond.ne(&z3::ast::BV::from_u64(ctx, 0, 256)) || !cond.is_const();
+                if opcode == &Jumpi {
+                    sol.assert(
+                        &cond
+                            ._eq(&z3::ast::BV::from_u64(ctx, 0, 256))
+                            .not()
+                            .simplify(),
+                    );
+                }
 
-                        if jdest.contains(&d) {
+                if is_reachable {
+                    // if symbolic dest, find for all valable destinations
+                    if !dest.is_const() {
+                        for jd in jdest {
+                            let dest_int = z3::ast::Int::from_u64(ctx, *jd);
                             sol.push();
-                            if let Ok((t, s, p)) = Self::path(
-                                ctx,
-                                jdest,
-                                sol,
-                                sym,
-                                code,
-                                pid + 1,
-                                tree.clone(),
-                                vdest,
-                                step.clone(),
-                                d as usize,
-                            ) {
-                                pid = p;
-                            };
+                            sol.assert(&dest_int._eq(&dest.to_int(false)).simplify());
+                            // check if dest is reachable
+                            if sol.check() == SatResult::Sat && !vdest.contains(jd) {
+                                vdest.push(*jd);
 
+                                if let Ok((t, s, p)) = Self::path(
+                                    ctx,
+                                    jdest,
+                                    sol,
+                                    sym,
+                                    code,
+                                    pid + 1,
+                                    tree.clone(),
+                                    vdest,
+                                    step.clone(),
+                                    *jd as usize,
+                                ) {
+                                    pid = p;
+                                }
+                            }
                             sol.pop(1);
                         }
+                    } else if let Some(d) = dest.as_u64() {
+                        if !vdest.contains(&d) {
+                            vdest.push(d);
+
+                            if jdest.contains(&d) {
+                                sol.push();
+                                if let Ok((t, s, p)) = Self::path(
+                                    ctx,
+                                    jdest,
+                                    sol,
+                                    sym,
+                                    code,
+                                    pid + 1,
+                                    tree.clone(),
+                                    vdest,
+                                    step.clone(),
+                                    d as usize,
+                                ) {
+                                    pid = p;
+                                } else {
+                                    dbg!("issue");
+                                };
+
+                                sol.pop(1);
+                            }
+                        } else {
+                            // already visited
+                        }
                     } else {
-                        // already visited
+                        step = Self::ret(step)?;
+                        step.ret.rev = true;
                     }
-                } else {
-                    step = Self::ret(step)?;
-                    step.ret.rev = true;
                 }
             }
 
@@ -576,7 +602,7 @@ mod tests {
         let (sol, ..) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -589,7 +615,7 @@ mod tests {
         let (sol, _) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -602,7 +628,7 @@ mod tests {
         let (sol, _) = prover.run().unwrap();
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -618,7 +644,7 @@ mod tests {
         assert_eq!(tree.keys().len(), 3);
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -630,12 +656,12 @@ mod tests {
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, Contract::default());
         let (sol, tree) = prover.run().unwrap();
-        println!("{:#?}", &tree);
         assert_eq!(sol.check(), SatResult::Sat);
-        assert_eq!(tree.keys().len(), 3);
+        // has 2 JUMPI, but only one branch is reachable
+        assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -650,7 +676,7 @@ mod tests {
         assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     #[test]
@@ -661,12 +687,12 @@ mod tests {
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, Contract::default());
         let (sol, tree) = prover.run().unwrap();
-        dbg!(&tree);
+        // dbg!(&tree);
         assert_eq!(sol.check(), SatResult::Sat);
         assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        // dbg!(&model);
     }
 
     /// only the main thread make the proving revert, not branches
@@ -688,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn owned() {
+    fn payable() {
         // https://github.com/huff-language/huffmate/blob/main/src/auth/NonPayable.huff
         let cfg = Config::default();
         let hex = hex::decode(
@@ -699,11 +725,15 @@ mod tests {
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, Contract::default());
         let (sol, tree) = prover.run().unwrap();
-        dbg!(&tree);
-        // assert_eq!(sol.check(), SatResult::Sat);
-        // assert_eq!(tree.keys().len(), 2);
+        // dbg!(&tree);
+        assert_eq!(sol.check(), SatResult::Sat);
+        assert_eq!(tree.keys().len(), 2);
         let model = sol.get_model();
         dbg!(&sol);
-        dbg!(&model);
+        let assertions = &sol.get_assertions();
+        for assertion in assertions {
+            dbg!(&assertion);
+        }
+        // dbg!(&model);
     }
 }

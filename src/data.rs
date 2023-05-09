@@ -67,7 +67,12 @@ impl<'ctx> Stack<'ctx> {
 
     pub fn get(&self, n: usize) -> Result<z3::ast::BV<'ctx>, RevertReason> {
         self.data
-            .get(n)
+            .get(
+                self.data
+                    .len()
+                    .checked_sub(n + 1)
+                    .ok_or(RevertReason::StackUnderflow)?,
+            )
             .ok_or(RevertReason::StackUnderflow)
             .cloned()
     }
