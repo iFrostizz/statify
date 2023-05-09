@@ -1,5 +1,3 @@
-use std::{cell::RefCell, collections::BTreeMap, ops::BitAnd, rc::Rc};
-
 use crate::{
     analysis::get_jumpdest,
     bytecode::{Mnemonic, Mnemonics},
@@ -7,6 +5,7 @@ use crate::{
     opcodes::OpCodes::*,
 };
 use ethabi::Contract;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use z3::{ast::Ast, Context, SatResult, Solver};
 
 pub struct Prover<'a, 'ctx> {
@@ -27,13 +26,20 @@ pub struct Ret<'ctx> {
 
 impl Ret<'_> {
     pub fn has_ret(&self) -> bool {
-        return self.ret || self.rev;
+        self.ret || self.rev
     }
 }
 
 pub struct Symbolic<'ctx> {
     calldata: z3::FuncDecl<'ctx>,
     value: z3::FuncDecl<'ctx>,
+    address: z3::FuncDecl<'ctx>,
+    caller: z3::FuncDecl<'ctx>,
+    origin: z3::FuncDecl<'ctx>,
+    balance_of: z3::FuncDecl<'ctx>,
+    calldatasize: z3::FuncDecl<'ctx>,
+    codesize: z3::FuncDecl<'ctx>,
+    gasprice: z3::FuncDecl<'ctx>,
 }
 
 impl<'ctx> Symbolic<'ctx> {
@@ -41,7 +47,15 @@ impl<'ctx> Symbolic<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         Self {
             calldata: z3::FuncDecl::new(ctx, "calldata", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
-            value: z3::FuncDecl::new(ctx, "value", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
+            // value: z3::FuncDecl::new(ctx, "value", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
+            value: z3::FuncDecl::new(ctx, "value", &[], &z3::Sort::bitvector(ctx, 256)),
+            caller: z3::FuncDecl::new(ctx, "caller", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
+            origin: z3::FuncDecl::new(ctx, "origin", &[], &z3::Sort::bitvector(ctx, 256)),
+            address: z3::FuncDecl::new(ctx, "address", &[], &z3::Sort::bitvector(ctx, 256)),
+            balance_of: z3::FuncDecl::new(ctx, "balance_of", &[&z3::Sort::bitvector(ctx, 256)], &z3::Sort::bitvector(ctx, 256)),
+            calldatasize: z3::FuncDecl::new(ctx, "calldatasize", &[], &z3::Sort::bitvector(ctx, 256)),
+            codesize: z3::FuncDecl::new(ctx, "codesize", &[], &z3::Sort::bitvector(ctx, 256)),
+            gasprice: z3::FuncDecl::new(ctx, "gasprice", &[], &z3::Sort::bitvector(ctx, 256)),
         }
     }
 }
@@ -106,7 +120,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             self.ctx,
             &jdest,
             &self.sol,
-            &self.sym.calldata,
+            &self.sym,
             self.code,
             0,
             Default::default(),
@@ -119,13 +133,12 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
     pub fn step(
         ctx: &'a Context,
         sol: &'a Solver,
-        calldata: &'a z3::FuncDecl<'ctx>,
+        sym: &'a Symbolic<'ctx>,
         last_step: Step<'a>,
         instruction: Mnemonic<'a>,
     ) -> Result<Step<'a>, RevertReason> {
         let mut step = last_step;
         step.op = instruction;
-        // dbg!(&step);
 
         let op = instruction.op;
         let opcode = op.opcode();
@@ -267,12 +280,80 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 let b = step.stack.pop()?;
                 step.stack.push(a.bvashr(&b))?;
             }
-            Sha3 => {
-                todo!()
-            }
+            // Sha3 => {
+            //     todo!()
+            // }
             Address => {
-                todo!()
+                step.stack.push(sym.address.apply(&[]).as_bv().unwrap())?;
             }
+            Balance => {
+                let address = step.stack.pop()?;
+                step.stack
+                    .push(sym.balance_of.apply(&[&address]).as_bv().unwrap())?;
+            }
+            Origin => {
+                step.stack.push(sym.origin.apply(&[]).as_bv().unwrap())?;
+            }
+            Caller => {
+                step.stack.push(sym.caller.apply(&[]).as_bv().unwrap())?;
+            }
+            Callvalue => {
+                step.stack.push(sym.value.apply(&[]).as_bv().unwrap())?;
+            }
+            Calldataload => {
+                let off = step.stack.pop()?;
+                let load = sym
+                    .calldata
+                    .apply(&[&off])
+                    .as_bv()
+                    .expect("couldn't convert calldata into a bitvector")
+                    .simplify();
+
+                step.stack.push(load)?;
+            }
+            Calldatasize => {
+                step.stack
+                    .push(sym.calldatasize.apply(&[]).as_bv().unwrap())?;
+            }
+            Codesize => {
+                let address = sym.address.apply(&[]).as_bv().unwrap();
+                step.stack
+                    .push(sym.codesize.apply(&[&address]).as_bv().unwrap())?;
+            }
+            Codecopy => {
+                let addr = sym.address.apply(&[]).as_bv().unwrap();
+                let dest_off = step.stack.pop32()?.unwrap();
+                let off = step.stack.pop32()?.unwrap();
+                let size = step.stack.pop32()?.unwrap();
+                step = Self::code_copy(ctx, addr, dest_off, off, size, step)?;
+            }
+            Gasprice => {
+                step.stack.push(sym.gasprice.apply(&[]).as_bv().unwrap())?;
+            }
+            Extcodesize => {
+                let address = step.stack.pop()?;
+                step.stack
+                    .push(sym.codesize.apply(&[&address]).as_bv().unwrap())?;
+            }
+            Extcodecopy => {
+                let addr = step.stack.pop()?;
+                let dest_off = step.stack.pop32()?.unwrap();
+                let off = step.stack.pop32()?.unwrap();
+                let size = step.stack.pop32()?.unwrap();
+                step = Self::code_copy(ctx, addr, dest_off, off, size, step)?;
+            }
+            Returndatasize => {
+                let size = if let Some(val) = &step.ret.val {
+                    val.get_size()
+                } else {
+                    0
+                };
+                step.stack
+                    .push(z3::ast::BV::from_u64(ctx, size.into(), 256))?;
+            }
+            // Returndatacopy => {
+            //     todo!();
+            // }
             Push0 | Push1 | Push2 | Push3 | Push4 | Push5 | Push6 | Push7 | Push8 | Push9
             | Push10 | Push11 | Push12 | Push13 | Push14 | Push15 | Push16 | Push17 | Push18
             | Push19 | Push20 | Push21 | Push22 | Push23 | Push24 | Push25 | Push26 | Push27
@@ -286,16 +367,6 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             }
             Pop => {
                 step.stack.pop()?;
-            }
-            Calldataload => {
-                let off = step.stack.pop()?;
-                let load = calldata
-                    .apply(&[&off])
-                    .as_bv()
-                    .expect("couldn't convert calldata into a bitvector")
-                    .simplify();
-
-                step.stack.push(load)?;
             }
             Mload => {
                 todo!()
@@ -331,6 +402,8 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             op => todo!("{:?}", op),
         }
 
+        dbg!(&step);
+
         Ok(step)
     }
 
@@ -342,12 +415,45 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
         Ok(step)
     }
 
+    fn code_copy(
+        ctx: &'a Context,
+        addr: z3::ast::BV<'a>,
+        dest_off: u32,
+        off: u32,
+        size: u32,
+        mut step: Step<'a>,
+    ) -> Result<Step<'a>, RevertReason> {
+        let codecopy = z3::FuncDecl::new(
+            ctx,
+            "codecopy",
+            &[
+                &z3::Sort::bitvector(ctx, 256),
+                &z3::Sort::bitvector(ctx, 256),
+                &z3::Sort::bitvector(ctx, 256),
+            ],
+            &z3::Sort::bitvector(ctx, size),
+        );
+
+        let code = codecopy
+            .apply(&[
+                &addr,
+                &z3::ast::BV::from_u64(ctx, off.into(), 256),
+                &z3::ast::BV::from_u64(ctx, size.into(), 256),
+            ])
+            .as_bv()
+            .unwrap();
+
+        step.memory.mbig_store(dest_off, code);
+
+        Ok(step)
+    }
+
     /// iterate on a portion of the bytecode, branch when needed
     pub fn path(
         ctx: &'ctx Context,
         jdest: &Vec<u64>,
         sol: &'a Solver<'ctx>,
-        calldata: &'a z3::FuncDecl<'ctx>,
+        sym: &'a Symbolic<'ctx>,
         code: &Mnemonics<'a>,
         mut pid: usize,
         tree: Rc<RefCell<Tree<'a>>>,
@@ -383,7 +489,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                                 ctx,
                                 jdest,
                                 sol,
-                                calldata,
+                                sym,
                                 code,
                                 pid + 1,
                                 tree.clone(),
@@ -406,7 +512,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                                 ctx,
                                 jdest,
                                 sol,
-                                calldata,
+                                sym,
                                 code,
                                 pid + 1,
                                 tree.clone(),
@@ -429,7 +535,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             }
 
             // also keep up with the left branch
-            step = Self::step(ctx, sol, calldata, step.clone(), *instruction)?;
+            step = Self::step(ctx, sol, sym, step.clone(), *instruction)?;
             let tr = tree.clone();
             let mut t = tr.borrow_mut();
             let val = t.get_mut(&last_pid);
@@ -579,5 +685,25 @@ mod tests {
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, Contract::default());
         assert!(prover.run().is_ok());
+    }
+
+    #[test]
+    fn owned() {
+        // https://github.com/huff-language/huffmate/blob/main/src/auth/NonPayable.huff
+        let cfg = Config::default();
+        let hex = hex::decode(
+            "6000600b34156100225763e342daa4600052602060045260245260445260806000fd5b5050",
+        )
+        .unwrap();
+        let code = to_mnemonics(&hex);
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let (sol, tree) = prover.run().unwrap();
+        dbg!(&tree);
+        // assert_eq!(sol.check(), SatResult::Sat);
+        // assert_eq!(tree.keys().len(), 2);
+        let model = sol.get_model();
+        dbg!(&sol);
+        dbg!(&model);
     }
 }

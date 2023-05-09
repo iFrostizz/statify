@@ -162,15 +162,11 @@ pub fn bool_to_bv<'ctx>(ctx: &'ctx Context, bool: &z3::ast::Bool<'ctx>) -> z3::a
     bool.ite(&one, &zero)
 }
 
-pub fn is_zero<'ctx>(ctx: &'ctx Context, bv: &z3::ast::BV) -> z3::ast::BV<'ctx> {
+pub fn is_zero<'ctx>(ctx: &'ctx Context, bv: &z3::ast::BV<'ctx>) -> z3::ast::BV<'ctx> {
     let zero = z3::ast::BV::from_u64(ctx, 0, 256);
     let one = z3::ast::BV::from_u64(ctx, 1, 256);
 
-    if bv.eq(&zero) {
-        one
-    } else {
-        zero
-    }
+    bv._eq(&zero).ite(&one, &zero)
 }
 
 impl<'ctx> Memory<'ctx> {
@@ -180,23 +176,25 @@ impl<'ctx> Memory<'ctx> {
 
     /// set a vec of words in the memory at offset
     pub fn set(&mut self, offset: u32, words: z3::ast::BV<'ctx>) {
-        if let Some(data) = &self.data {
+        let data = if let Some(data) = &self.data {
             let size = data.get_size();
             let wsize = words.get_size();
             if offset > size {
                 let low_data = data.zero_ext(offset - size);
-                self.data = Some(low_data.concat(&words));
+                low_data.concat(&words)
             } else if offset + wsize > size {
                 let low_data = data.extract(offset, 0);
-                self.data = Some(low_data.concat(&words));
+                low_data.concat(&words)
             } else {
                 let low_data = data.extract(offset, 0);
                 let up_data = data.extract(size, offset + wsize);
-                self.data = Some(low_data.concat(&words.concat(&up_data)));
+                low_data.concat(&words.concat(&up_data))
             }
         } else {
-            self.data = Some(words)
-        }
+            words
+        };
+
+        self.data = Some(data.simplify());
     }
 
     /// Get a `BV` representing the data in memory in the range `r`.
@@ -245,6 +243,10 @@ impl<'ctx> EVMMemory<'ctx> {
 
     pub fn mbig_load(&mut self, from: u32, to: u32) -> z3::ast::BV<'ctx> {
         self.memory.get(self.ctx, from..to)
+    }
+
+    pub fn mbig_store(&mut self, offset: u32, value: z3::ast::BV<'ctx>) {
+        self.memory.set(offset, value);
     }
 }
 
