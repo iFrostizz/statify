@@ -9,6 +9,7 @@ edition = "2021"
 ethabi = "18.0.0"
 eyre = "0.6.8"
 hex = "0.4.3"
+petgraph = "0.6.3"
 # z3 = "0.11.2"
 z3 = { git = "https://github.com/prove-rs/z3.rs" } # get_assertions is not available on last build
 

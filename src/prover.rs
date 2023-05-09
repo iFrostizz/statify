@@ -265,14 +265,14 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 step.stack.push(res)?;
             }
             Shl => {
-                let a = step.stack.pop()?;
-                let b = step.stack.pop()?;
-                step.stack.push(a.bvshl(&b))?;
+                let shift = step.stack.pop()?;
+                let value = step.stack.pop()?;
+                step.stack.push(value.bvshl(&shift))?;
             }
             Shr => {
-                let a = step.stack.pop()?;
-                let b = step.stack.pop()?;
-                step.stack.push(a.bvlshr(&b))?;
+                let shift = step.stack.pop()?;
+                let value = step.stack.pop()?;
+                step.stack.push(value.bvlshr(&shift))?;
             }
             Sar => {
                 let a = step.stack.pop()?;
@@ -406,7 +406,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
             op => todo!("{:?}", op),
         }
 
-        // dbg!(&step);
+        dbg!(&step);
 
         Ok(step)
     }
@@ -488,14 +488,14 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                 // dbg!(&cond);
 
                 let is_reachable = cond.ne(&z3::ast::BV::from_u64(ctx, 0, 256)) || !cond.is_const();
-                if opcode == &Jumpi {
-                    sol.assert(
-                        &cond
-                            ._eq(&z3::ast::BV::from_u64(ctx, 0, 256))
-                            .not()
-                            .simplify(),
-                    );
-                }
+                // if opcode == &Jumpi {
+                //     sol.assert(
+                //         &cond
+                //             ._eq(&z3::ast::BV::from_u64(ctx, 0, 256))
+                //             .not()
+                //             .simplify(),
+                //     );
+                // }
 
                 if is_reachable {
                     // if symbolic dest, find for all valable destinations
@@ -544,9 +544,7 @@ impl<'a, 'ctx> Prover<'a, 'ctx> {
                                     d as usize,
                                 ) {
                                     pid = p;
-                                } else {
-                                    dbg!("issue");
-                                };
+                                }
 
                                 sol.pop(1);
                             }
