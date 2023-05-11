@@ -8,6 +8,7 @@ mod bytecode;
 mod config;
 mod data;
 mod fsm;
+mod helpers;
 mod opcodes;
 mod prover;
 mod utils;
@@ -31,9 +32,10 @@ fn main() {
     let cfg = Config::default();
     let ctx = Context::new(&cfg);
     let mut prover = Prover::new(&ctx, &mnemonics, Contract::default());
-    let (sol, tree) = prover.run().unwrap();
-
+    let tree = prover.run().unwrap();
     dbg!(&tree);
+
+    let sol = &tree[&0].0;
     assert_eq!(sol.check(), SatResult::Sat, "Cannot be satisfied");
     let assertions = sol
         .get_assertions()

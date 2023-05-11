@@ -17,6 +17,7 @@ pub fn gen_graph(assertions: Vec<String>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::get_artifacts_code;
     use crate::{bytecode::to_mnemonics, prover::Prover};
     use ethabi::Contract;
     use z3::{Config, Context, SatResult};
@@ -31,9 +32,24 @@ mod tests {
         let code = to_mnemonics(&hex);
         let ctx = Context::new(&cfg);
         let mut prover = Prover::new(&ctx, &code, Contract::default());
-        let (sol, tree) = prover.run().unwrap();
-        // assert_eq!(sol.check(), SatResult::Sat);
+        let tree = prover.run().unwrap();
+        let sol = &tree[&0].0;
+        assert_eq!(sol.check(), SatResult::Sat);
         dbg!(&tree);
         dbg!(&sol.get_assertions());
+    }
+
+    #[test]
+    fn weth() {
+        let bytecode = get_artifacts_code("test-data/WETH9.asm").unwrap();
+        let code = to_mnemonics(&bytecode);
+        let cfg = Config::default();
+        let ctx = Context::new(&cfg);
+        let mut prover = Prover::new(&ctx, &code, Contract::default());
+        let tree = prover.run().unwrap();
+        let sol = &tree[&0].0;
+        assert_eq!(sol.check(), SatResult::Sat);
+
+        dbg!(&tree);
     }
 }

@@ -1,7 +1,6 @@
-use std::fs::File;
-use std::io::Read;
+use std::{fs::File, io::Read};
 
-pub fn get_slice<T>(v: &[T], range: std::ops::Range<usize>) -> &[T] {
+pub fn range_to_slice<T>(v: &[T], range: std::ops::Range<usize>) -> &[T] {
     if range.end <= v.len() {
         &v[range]
     } else if range.start < v.len() {

@@ -1,4 +1,4 @@
-use crate::data::Word;
+use crate::helpers::Word;
 use z3::{ast::BV, Context};
 
 pub fn word_to_bv<'c>(ctx: &'c Context, name: &'c str, word: Word) -> BV<'c> {

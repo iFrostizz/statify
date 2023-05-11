@@ -171,6 +171,10 @@ impl OpCode {
         self.0 >= 128 && self.0 < 144
     }
 
+    pub fn is_swap(&self) -> bool {
+        self.0 >= 144 && self.0 < 160
+    }
+
     pub fn push_size(&self) -> Option<u8> {
         if self.is_push() {
             // starts at 0
@@ -183,6 +187,14 @@ impl OpCode {
     pub fn dup_size(&self) -> Option<u8> {
         if self.is_dup() {
             Some(self.0 - 128 + 1)
+        } else {
+            None
+        }
+    }
+
+    pub fn swap_size(&self) -> Option<u8> {
+        if self.is_swap() {
+            Some(self.0 - 144 + 1)
         } else {
             None
         }
