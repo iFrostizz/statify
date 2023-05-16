@@ -23,12 +23,23 @@ impl<'ctx> Memory<'ctx> {
             } else if offset + wsize > size {
                 let low_data = data.extract(offset - 1, 0);
                 low_data.concat(&words)
-            } else {
+            } else if offset > 0 {
                 let low_data = data.extract(offset - 1, 0);
                 // we cut the legs of data so we must sub off - 1
                 // old was "extract(size - 1, wsize + offset)"
                 let up_data = data.extract(size - offset, wsize);
                 low_data.concat(&words.concat(&up_data))
+            } else if offset == 0 {
+                if size > wsize {
+                    // get from the start
+                    let up_data = data.extract(size - 1, wsize);
+                    words.concat(&up_data)
+                } else {
+                    words
+                }
+            } else {
+                // is there other cases ?
+                unreachable!()
             }
         } else {
             words
@@ -70,7 +81,7 @@ impl<'ctx> EVMMemory<'ctx> {
         }
     }
 
-    pub fn mload(&mut self, off: u32) -> z3::ast::BV {
+    pub fn mload(&mut self, off: u32) -> z3::ast::BV<'ctx> {
         let ret = self.memory.get(self.ctx, off..(off + 256));
         assert_eq!(ret.get_size(), 256, "mload val len != 256b");
         ret

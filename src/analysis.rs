@@ -1,12 +1,12 @@
 use crate::bytecode::Mnemonics;
 
-pub fn get_selectors(mnemo: Mnemonics) -> Vec<u32> {
+pub fn get_selectors(mnemo: &Mnemonics) -> Vec<u32> {
     mnemo
-        .into_iter()
+        .iter()
         .filter(|mn| mn.pushes.len() == 4)
         .map(|mn| {
             let mut array = [0u8; 4];
-            array.copy_from_slice(&mn.pushes);
+            array.copy_from_slice(mn.pushes);
 
             u32::from_be_bytes(array)
         })

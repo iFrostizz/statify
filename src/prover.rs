@@ -141,7 +141,7 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
 
         let op = instruction.op;
         let opcode = op.opcode();
-        dbg!(&opcode);
+        // dbg!(&opcode);
         match opcode {
             Stop => {
                 // no output for this step
@@ -310,12 +310,13 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
                 )?;
             }
             Callvalue => {
-                step.stack.push(
-                    sym.value
-                        .apply(&[&z3::ast::BV::from_u64(ctx, 0, 256)])
-                        .as_bv()
-                        .unwrap(),
-                )?;
+                // step.stack.push(
+                //     sym.value
+                //         .apply(&[&z3::ast::BV::from_u64(ctx, 0, 256)])
+                //         .as_bv()
+                //         .unwrap(),
+                // )?;
+                step.stack.push(z3::ast::BV::from_u64(ctx, 0, 256))?;
             }
             Calldataload => {
                 let off = step.stack.pop()?;
@@ -390,22 +391,21 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
             Pop => {
                 step.stack.pop()?;
             }
-            // Mload => {
-            //     todo!()
-            //     // let off = stack.pop()?;
-            //     // let mem = memory.mload(U256::new(off));
-            //     // stack.push(mem)?;
-            // }
+            Mload => {
+                let off = step.stack.pop32()?.unwrap();
+                let mem = step.memory.mload(off);
+                step.stack.push(mem)?;
+            }
             Mstore => {
                 let off = step.stack.pop32()?.unwrap();
                 let val = step.stack.pop()?;
                 step.memory.mstore(off, val);
             }
             Return => {
-                step = Self::ret(step)?;
+                step = Self::ret(ctx, step)?;
             }
             Revert => {
-                step = Self::ret(step)?;
+                step = Self::ret(ctx, step)?;
                 step.ret.rev = true;
             }
             Invalid => {
@@ -424,16 +424,24 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
             op => todo!("{:?}", op),
         }
 
-        dbg!(&step);
+        // dbg!(&step);
 
         Ok(step)
     }
 
-    fn ret(mut step: Step<'a, 'ctx>) -> Result<Step<'a, 'ctx>, RevertReason> {
-        let off = step.stack.pop32()?.unwrap();
-        let len = step.stack.pop32()?.unwrap();
-        let ret = step.memory.mbig_load(off, off + len);
-        step.ret.val = Some(ret);
+    fn ret(ctx: &'a Context, mut step: Step<'a, 'ctx>) -> Result<Step<'a, 'ctx>, RevertReason> {
+        dbg!(&step.stack);
+        let len = step.stack.peek(1)?;
+        if len.eq(&z3::ast::BV::from_u64(ctx, 0, 256)) {
+            step.ret.val = None;
+        } else {
+            let len = len.as_u64().unwrap() as u32;
+            let off = step.stack.pop32()?.unwrap();
+            step.stack.pop()?;
+            let ret = step.memory.mbig_load(off, off + len);
+            step.ret.val = Some(ret);
+        }
+
         Ok(step)
     }
 
@@ -482,7 +490,6 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
         sha3.apply(&[part]).as_bv().unwrap()
     }
 
-    // TODO: copy the current prover if we branch and make a root storage from the vec of steps
     /// iterate on a portion of the bytecode, branch when needed
     fn path(
         ctx: &'ctx Context,
@@ -505,14 +512,14 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
         drop(trc);
 
         // start the execution from the id
-        for (_i, instruction) in code.iter().enumerate().skip_while(|(_, ins)| ins.pc < pc) {
+        for instruction in code.iter().skip_while(|ins| ins.pc < pc) {
             let opcode = instruction.opcode();
 
             if opcode == &Jump || opcode == &Jumpi {
                 // find potential jump dests
                 let dest = step.stack.peek(0)?;
 
-                // dbg!(&dest);
+                dbg!(&dest);
                 // dbg!(&dest.is_app());
                 // dbg!(&dest.is_const());
 
@@ -524,7 +531,8 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
 
                 // dbg!(&cond);
 
-                let is_reachable = cond.ne(&z3::ast::BV::from_u64(ctx, 0, 256)) || !cond.is_const();
+                // Y shouldn't it be 0 tho ?
+                // let is_reachable = cond.ne(&z3::ast::BV::from_u64(ctx, 0, 256)) || !cond.is_const();
                 // if opcode == &Jumpi {
                 //     sol.assert(
                 //         &cond
@@ -534,7 +542,7 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
                 //     );
                 // }
 
-                if is_reachable {
+                if true {
                     // if symbolic dest, find for all valable destinations
                     if !dest.is_const() {
                         // for each potential jump dest
@@ -589,20 +597,16 @@ impl<'a: 'ctx, 'ctx> Prover<'a, 'ctx> {
                             // already visited
                         }
                     } else {
-                        step = Self::ret(step)?;
+                        step = Self::ret(ctx, step)?;
                         step.ret.rev = true;
                     }
+                } else {
+                    dbg!("unreachable!");
                 }
             }
 
             // also keep up with the left branch
-            step = Self::step(
-                ctx,
-                // &sol,
-                sym,
-                step.clone(),
-                *instruction,
-            )?;
+            step = Self::step(ctx, sym, step.clone(), *instruction)?;
             let tr = tree.clone();
             let mut t = tr.borrow_mut();
             if let Some((_sol, steps)) = t.get_mut(&last_pid) {

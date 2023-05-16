@@ -13,5 +13,8 @@ petgraph = "0.6.3"
 # z3 = "0.11.2"
 z3 = { git = "https://github.com/prove-rs/z3.rs" } # get_assertions is not available on last build
 
+[dev-dependencies]
+tempsol = { git = "https://github.com/iFrostizz/tempsol.git" }
+
 # [toolchain]
 # channel = "nightly"
